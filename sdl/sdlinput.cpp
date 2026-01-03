@@ -250,15 +250,21 @@ void S9xParseInputConfig (ConfigFile &conf, int pass)
 		keymaps.push_back(strpair_t("J00:Axis0",      "Joypad1 Axis Left/Right T=50%"));
 		keymaps.push_back(strpair_t("J00:Axis1",      "Joypad1 Axis Up/Down T=50%"));
 
-		keymaps.push_back(strpair_t("J00:B0",         "Joypad1 X"));
+		keymaps.push_back(strpair_t("J00:B0",         "Joypad1 B"));
 		keymaps.push_back(strpair_t("J00:B1",         "Joypad1 A"));
-		keymaps.push_back(strpair_t("J00:B2",         "Joypad1 B"));
+		keymaps.push_back(strpair_t("J00:B2",         "Joypad1 X"));
 		keymaps.push_back(strpair_t("J00:B3",         "Joypad1 Y"));
-
+		keymaps.push_back(strpair_t("J00:B4",         "Joypad1 L"));
+		keymaps.push_back(strpair_t("J00:B5",         "Joypad1 R"));
 		keymaps.push_back(strpair_t("J00:B6",         "Joypad1 L"));
 		keymaps.push_back(strpair_t("J00:B7",         "Joypad1 R"));
 		keymaps.push_back(strpair_t("J00:B8",         "Joypad1 Select"));
-		keymaps.push_back(strpair_t("J00:B11",        "Joypad1 Start"));
+		keymaps.push_back(strpair_t("J00:B9",         "Joypad1 Start"));
+		keymaps.push_back(strpair_t("J00:B13",        "Joypad1 Up"));
+		keymaps.push_back(strpair_t("J00:B14",        "Joypad1 Down"));
+		keymaps.push_back(strpair_t("J00:B15",        "Joypad1 Left"));
+		keymaps.push_back(strpair_t("J00:B16",        "Joypad1 Right"));
+
 		keymaps.push_back(strpair_t("K00:SDLK_RIGHT",        "Joypad1 Right"));
 		keymaps.push_back(strpair_t("K00:SDLK_LEFT",         "Joypad1 Left"));
 		keymaps.push_back(strpair_t("K00:SDLK_DOWN",         "Joypad1 Down"));
