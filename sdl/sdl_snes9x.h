@@ -22,6 +22,7 @@ void S9xMenuInit(void);
 void S9xMenuDraw(void);
 void S9xMenuLoadSelected(void);
 bool8 S9xLoadROM(const char *filename);
+void S9xDeinitInputDevices(void);
 
 
 

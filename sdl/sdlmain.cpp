@@ -690,6 +690,7 @@ void S9xExit (void)
 	S9xResetSaveTimer(FALSE);
 
 	S9xUnmapAllControls();
+    S9xDeinitInputDevices();
 	S9xDeinitDisplay();
 	Memory.Deinit();
 	S9xDeinitAPU();

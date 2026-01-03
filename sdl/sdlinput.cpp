@@ -41,8 +41,12 @@
 #include "cheats.h"
 #include "display.h"
 
+#include <map>
+
 using namespace std;
 std::map <string, int> name_sdlkeysym;
+static std::map<SDL_JoystickID, SDL_Joystick*> open_joysticks;
+static std::map<SDL_JoystickID, int> instance_to_pad;
 
 ConfigFile::secvec_t	keymaps;
 
@@ -301,39 +305,71 @@ void S9xParseInputConfig (ConfigFile &conf, int pass)
 	return;
 }
 
+static void S9xOpenJoystick(int index)
+{
+    SDL_Joystick *joy = SDL_JoystickOpen(index);
+    if (joy)
+    {
+        SDL_JoystickID instance = SDL_JoystickInstanceID(joy);
+        if (open_joysticks.find(instance) == open_joysticks.end())
+        {
+            open_joysticks[instance] = joy;
+            // Assign the first available pad index (0-7)
+            int pad = 0;
+            for (pad = 0; pad < 8; pad++)
+            {
+                bool taken = false;
+                for (auto const& [inst, p] : instance_to_pad)
+                {
+                    if (p == pad) { taken = true; break; }
+                }
+                if (!taken) break;
+            }
+            instance_to_pad[instance] = pad;
+
+            printf("Joystick connected: %s\n", SDL_JoystickName(joy));
+            printf("  Instance ID: %d, Pad Slot: %d\n", (int)instance, pad);
+            printf("  %d-axis %d-buttons %d-balls %d-hats\n",
+                   SDL_JoystickNumAxes(joy),
+                   SDL_JoystickNumButtons(joy),
+                   SDL_JoystickNumBalls(joy),
+                   SDL_JoystickNumHats(joy));
+        }
+        else
+        {
+            SDL_JoystickClose(joy);
+        }
+    }
+}
+
+static void S9xCloseJoystick(SDL_JoystickID instance)
+{
+    if (open_joysticks.count(instance))
+    {
+        printf("Joystick disconnected (Instance %d, Pad %d)\n", (int)instance, instance_to_pad[instance]);
+        SDL_JoystickClose(open_joysticks[instance]);
+        open_joysticks.erase(instance);
+        instance_to_pad.erase(instance);
+    }
+}
+
 void S9xInitInputDevices (void)
 {
-	SDL_Joystick * joystick[4] = {NULL, NULL, NULL, NULL};
-
 	// domaemon: 1) initializing the joystic subsystem
 	SDL_InitSubSystem (SDL_INIT_JOYSTICK);
-
-	/*
-	 * domaemon: 2) check how may joysticks are connected
-	 * domaemon: 3) relate paddev1 to SDL_Joystick[0], paddev2 to SDL_Joystick[1]...
-	 * domaemon: 4) print out the joystick name and capabilities
-	 */
+    SDL_JoystickEventState(SDL_ENABLE);
 
 	int num_joysticks = SDL_NumJoysticks();
 
 	if (num_joysticks == 0)
 	{
-		fprintf(stderr, "joystick: No joystick found.\n");
+		printf("joystick: No joystick found. Waiting for connection...\n");
 	}
 	else
 	{
-		SDL_JoystickEventState (SDL_ENABLE);
-
-		// domaemon: FIXME should check if num_joysticks is below 4..
 		for (int i = 0; i < num_joysticks; i++)
 		{
-			joystick[i] = SDL_JoystickOpen (i);
-			printf ("  %s\n", SDL_JoystickName(joystick[i]));
-			printf ("  %d-axis %d-buttons %d-balls %d-hats \n",
-				SDL_JoystickNumAxes(joystick[i]),
-				SDL_JoystickNumButtons(joystick[i]),
-				SDL_JoystickNumBalls(joystick[i]),
-				SDL_JoystickNumHats(joystick[i]));
+            S9xOpenJoystick(i);
 		}
 	}
 }
@@ -365,6 +401,14 @@ void S9xProcessEvents (bool8 block)
 			break;
 
 /***** Joystick starts *****/
+
+        case SDL_JOYDEVICEADDED:
+            S9xOpenJoystick(event.jdevice.which);
+            break;
+
+        case SDL_JOYDEVICEREMOVED:
+            S9xCloseJoystick(event.jdevice.which);
+            break;
 
 		case SDL_JOYBUTTONDOWN:
 		case SDL_JOYBUTTONUP:
@@ -406,17 +450,25 @@ void S9xProcessEvents (bool8 block)
                 }
             }
 
-			S9xReportButton(0x80000000 | // joystick button
-					(event.jbutton.which << 24) | // joystick index
-					event.jbutton.button, // joystick button code
-					event.type == SDL_JOYBUTTONDOWN); // press or release
+            if (instance_to_pad.count(event.jbutton.which))
+            {
+                int pad = instance_to_pad[event.jbutton.which];
+                S9xReportButton(0x80000000 | // joystick button
+                        (pad << 24) | // pad index
+                        event.jbutton.button, // joystick button code
+                        event.type == SDL_JOYBUTTONDOWN); // press or release
+            }
 			break;
 
 		case SDL_JOYAXISMOTION:
-			S9xReportAxis(0x80008000 | // joystick axis
-				      (event.jaxis.which << 24) | // joystick index
-				      event.jaxis.axis, // joystick axis
-				      event.jaxis.value); // axis value
+            if (instance_to_pad.count(event.jaxis.which))
+            {
+                int pad = instance_to_pad[event.jaxis.which];
+                S9xReportAxis(0x80008000 | // joystick axis
+                          (pad << 24) | // pad index
+                          event.jaxis.axis, // joystick axis
+                          event.jaxis.value); // axis value
+            }
 			break;
 
 /***** Joystick ends *****/
@@ -446,6 +498,16 @@ void S9xProcessEvents (bool8 block)
 		printf ("Quit Event. Bye.\n");
 		S9xExit();
 	}
+}
+
+void S9xDeinitInputDevices(void)
+{
+    for (auto it = open_joysticks.begin(); it != open_joysticks.end(); ++it)
+    {
+        SDL_JoystickClose(it->second);
+    }
+    open_joysticks.clear();
+    instance_to_pad.clear();
 }
 
 bool S9xPollButton (uint32 id, bool *pressed)
