@@ -1,0 +1,26 @@
+
+build information:
+cc...............,,,. gcc
+c++.................. g++
+options.............. -g -O2 -O3 -fomit-frame-pointer -fno-exceptions -fno-rtti -pedantic -Wall -W -Wno-unused-parameter 
+defines.............. -DJOYSTICK_SUPPORT -DZLIB -DJMA_SUPPORT -DHAVE_LIBPNG -DHAVE_MKSTEMP -DHAVE_STRINGS_H -DHAVE_SYS_IOCTL_H -DHAVE_STDINT_H -DRIGHTSHIFT_IS_SAR -DUSE_XVIDEO -DUSE_XINERAMA -DALSA
+libs................. -lz -lpng -lSM -lICE -lX11 -lXext -lXv -lXinerama -lpthread -lasound
+
+features:
+Xvideo support....... yes
+libyuv support....... no
+Xinerama support..... yes
+sound support........ yes
+alsa support......... yes
+screenshot support... yes
+netplay support...... no
+gamepad support...... yes
+GZIP support......... yes
+ZIP support.......... yes
+SYSTEM_ZIP........... check
+JMA support.......... yes
+SSE4.1............... no
+AVX2................. no
+NEON................. no
+debugger............. no
+
