@@ -824,6 +824,8 @@ int main (int argc, char **argv)
 #endif
 
 	CPU.Flags = 0;
+    IPPU.RenderedScreenWidth = 256;
+    IPPU.RenderedScreenHeight = 224;
 
 	S9xLoadConfigFiles(argv, argc);
 	const char *rom = S9xParseArgs(argv, argc);

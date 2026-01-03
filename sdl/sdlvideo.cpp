@@ -49,7 +49,7 @@
 #include "conffile.h"
 #include "blit.h"
 #include "display.h"
-#include "font.h"
+#include "gfx.h"
 
 #include "sdl_snes9x.h"
 
@@ -375,64 +375,41 @@ void S9xSetPalette (void)
 	return;
 }
 
-static void S9xDrawText(int x, int y, const char *text, uint32 color)
-{
-    while (*text)
-    {
-        uint8 c = (uint8)*text;
-        if (c >= 32 && c <= 127)
-        {
-            int block = (c - 32) / 16;
-            int offset = (c % 16) * 8;
-            int start_line = 9 * block + block;
-            
-            for (int row = 0; row < 9; row++)
-            {
-                const char *p = font[start_line + row] + offset;
-                for (int col = 0; col < 8; col++)
-                {
-                    if (p[col] == '#')
-                    {
-                        SDL_SetRenderDrawColor(GUI.sdlRenderer, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF, 255);
-                        SDL_Rect r = { x + col * 2, y + row * 2, 2, 2 };
-                        SDL_RenderFillRect(GUI.sdlRenderer, &r);
-                    }
-                }
-            }
-        }
-        x += 16;
-        text++;
-    }
-}
-
 void S9xMenuDraw (void)
 {
-    SDL_SetRenderTarget(GUI.sdlRenderer, GUI.sdlTexture);
-    SDL_SetRenderDrawColor(GUI.sdlRenderer, 0, 0, 128, 255);
-    SDL_RenderClear(GUI.sdlRenderer);
+    uint16 blue = BUILD_PIXEL(0, 0, 16);
+    for (uint32 y = 0; y < SNES_HEIGHT_EXTENDED; y++)
+    {
+        uint16 *ptr = GFX.Screen + y * GFX.RealPPL;
+        for (uint32 x = 0; x < SNES_WIDTH; x++)
+            *ptr++ = blue;
+    }
 
-    S9xDrawText(20, 20, "Snes9x - Select a ROM", 0xFFFFFF);
-    S9xDrawText(20, 40, "---------------------", 0xFFFFFF);
+    uint16 white = BUILD_PIXEL(31, 31, 31);
+    uint16 yellow = BUILD_PIXEL(31, 31, 0);
+    uint16 red = BUILD_PIXEL(31, 0, 0);
+
+    Settings.DisplayColor = white;
+    S9xVariableDisplayString("Snes9x - Select a ROM", 22, 10, false, S9X_NO_INFO);
+    S9xVariableDisplayString("---------------------", 21, 10, false, S9X_NO_INFO);
 
     int start = 0;
     if (g_menu_selection > 18) start = g_menu_selection - 18;
 
     for (int i = start; i < (int)g_rom_list.size() && i < start + 20; i++)
     {
-        uint32 color = (i == g_menu_selection) ? 0xFFFF00 : 0xFFFFFF;
-        char label[64];
+        Settings.DisplayColor = (i == g_menu_selection) ? yellow : white;
+        char label[128];
         const char *prefix = (i == g_menu_selection) ? "> " : "  ";
         snprintf(label, sizeof(label), "%s%s", prefix, g_rom_list[i].c_str());
-        S9xDrawText(20, 70 + (i - start) * 18, label, color);
+        S9xVariableDisplayString(label, 19 - (i - start), 10, false, S9X_NO_INFO);
     }
 
     if (g_rom_list.empty())
     {
-        S9xDrawText(20, 70, "No ROMs found in ~/roms", 0xFF0000);
+        Settings.DisplayColor = red;
+        S9xVariableDisplayString("No ROMs found in ~/roms", 18, 10, false, S9X_NO_INFO);
     }
 
-    SDL_SetRenderTarget(GUI.sdlRenderer, NULL);
-    SDL_RenderClear(GUI.sdlRenderer);
-    SDL_RenderCopy(GUI.sdlRenderer, GUI.sdlTexture, NULL, GUI.p_screen_rect);
-    SDL_RenderPresent(GUI.sdlRenderer);
+    S9xPutImage(SNES_WIDTH, SNES_HEIGHT_EXTENDED);
 }

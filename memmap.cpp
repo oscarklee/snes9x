@@ -998,6 +998,13 @@ void CMemory::Deinit (void)
 			IPPU.TileCached[t] = NULL;
 		}
 	}
+
+    ROMStorage.clear();
+    ROMStorage.shrink_to_fit();
+    SRAMStorage.clear();
+    SRAMStorage.shrink_to_fit();
+    ROM = NULL;
+    SRAM = NULL;
 }
 
 // file management and ROM detection
