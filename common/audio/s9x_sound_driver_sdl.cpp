@@ -9,6 +9,7 @@
 
 bool S9xSDLSoundDriver::write_samples(int16_t *data, int samples)
 {
+    std::lock_guard<std::mutex> lock(mutex);
     bool retval = true;
     auto empty = buffer.space_empty();
     if (samples > empty)
@@ -23,6 +24,7 @@ bool S9xSDLSoundDriver::write_samples(int16_t *data, int samples)
 
 void S9xSDLSoundDriver::mix(unsigned char *output, int bytes)
 {
+    std::lock_guard<std::mutex> lock(mutex);
     if (buffer.avail() >= bytes >> 1)
         buffer.read((int16_t *)output, bytes >> 1);
     else

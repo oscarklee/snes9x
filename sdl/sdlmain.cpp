@@ -506,6 +506,23 @@ void S9xToggleSoundChannel (int channel)
 	S9xSetSoundControl(sound_switch);
 }
 
+static void S9xSDLSoundCallback (void *data)
+{
+	if (SoundDriver)
+	{
+		int samples = S9xGetSampleCount();
+		if (samples > 0)
+		{
+			static std::vector<int16> sample_buffer;
+			if ((int)sample_buffer.size() < samples)
+				sample_buffer.resize(samples);
+
+			S9xMixSamples((uint8 *)sample_buffer.data(), samples);
+			SoundDriver->write_samples(sample_buffer.data(), samples);
+		}
+	}
+}
+
 bool8 S9xOpenSoundDevice (void)
 {
 	if (SoundDriver)
@@ -524,6 +541,7 @@ bool8 S9xOpenSoundDevice (void)
 		return FALSE;
 	}
 
+    S9xSetSamplesAvailableCallback(S9xSDLSoundCallback, NULL);
 	SoundDriver->start();
 
 	return TRUE;
@@ -534,8 +552,7 @@ void S9xSyncSpeed (void)
   // doemaemon: not sure how crucial this is atm.
 	if (Settings.SoundSync && SoundDriver)
 	{
-		while (SoundDriver->space_free() < (int)Settings.SoundPlaybackRate * (int)Settings.FrameTime / 1000000)
-			usleep(0);
+		S9xSyncSound();
 	}
 
 	if (Settings.DumpStreams)
@@ -834,6 +851,9 @@ int main (int argc, char **argv)
 		rom_filename = rom;
 
 	make_snes9x_dirs();
+
+	if (sound_buffer_size == 0)
+		sound_buffer_size = 100;
 
 	if (!Memory.Init() || !S9xInitAPU())
 	{
