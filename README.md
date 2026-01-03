@@ -1,61 +1,66 @@
-# Snes9x
-*Snes9x - Portable Super Nintendo Entertainment System (TM) emulator*
+# Snes9x SDL2 - Optimized for Raspberry Pi Zero 2W
 
-This is the official source code repository for the Snes9x project.
+This is a specialized fork of the latest **Snes9x (v1.63 core)**, specifically modified and optimized for performance on resource-constrained devices like the **Raspberry Pi Zero 2W** (aarch64). 
 
-Please check the [Wiki](https://github.com/snes9xgit/snes9x/wiki) for additional information.
+It features a modernized **SDL2 frontend** integrated from legacy Snes9x ports, providing high-performance video, audio, and input handling on Linux-based systems without the need for a full X11 or GTK desktop environment.
 
-## Nightly builds
+## Key Features
+- **SDL2 Integration**: Native SDL2 support for video, audio, and input.
+- **Optimized for aarch64**: Pre-configured flags for the Cortex-A53 processor.
+- **ROM Selection Menu**: Built-in graphical menu to browse and launch games using your gamepad.
+- **Gamepad Hotplugging**: Connect or disconnect Bluetooth gamepads dynamically while the emulator is running.
+- **Minimal Dependencies**: Designed to run efficiently on bare-metal Linux or minimal OS distributions.
 
-Download nightly builds from continuous integration:
+## Dependencies
+Ensure you have the following libraries installed:
+- `libsdl2-dev`
+- `zlib1g-dev`
+- `libpng-dev`
+- `libasound2-dev` (optional, for ALSA backend through SDL)
 
-### snes9x
+## Build Instructions
 
-| OS            | status                                           |
-|---------------|--------------------------------------------------|
-| Windows       | [![Status][s9x-win-all]][appveyor]               |
-| Linux (GTK)   | [![Status][snes9x_linux-gtk-amd64]][cirrus-ci]   |
-| Linux (X11)   | [![Status][snes9x_linux-x11-amd64]][cirrus-ci]   |
-| FreeBSD (X11) | [![Status][snes9x_freebsd-x11-amd64]][cirrus-ci] |
-| macOS         | [![Status][snes9x_macOS-amd64]][cirrus-ci]       |
+### Configuration
+Navigate to the `sdl` directory to configure the build:
 
-[appveyor]: https://ci.appveyor.com/project/snes9x/snes9x
-[cirrus-ci]: http://cirrus-ci.com/github/snes9xgit/snes9x
+```bash
+cd snes9x/sdl
+./configure --build=aarch64-unknown-linux-gnu
+```
 
-[s9x-win-all]: https://ci.appveyor.com/api/projects/status/github/snes9xgit/snes9x?branch=master&svg=true
-[snes9x_linux-gtk-amd64]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=snes9x_linux-gtk-amd64
-[snes9x_linux-x11-amd64]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=snes9x_linux-x11-amd64
-[snes9x_freebsd-x11-amd64]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=snes9x_freebsd-x11-amd64
-[snes9x_macOS-amd64]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=snes9x_macOS-amd64
+### Compilation
+The project uses specific compiler optimizations to achieve high performance on the Pi Zero. We use the **gnu++17** standard. 
 
-### libretro core
+**IMPORTANT**: Due to memory limitations on the Raspberry Pi Zero, you **must** compile using a single thread (`-j1`). Multi-threaded compilation will likely cause the system to run out of memory.
 
-| OS                  | status                                                  |
-|---------------------|---------------------------------------------------------|
-| Linux/amd64         | [![Status][libretro_linux-amd64]][cirrus-ci]            |
-| Linux/i386          | [![Status][libretro_linux-i386]][cirrus-ci]             |
-| Linux/armhf         | [![Status][libretro_linux-armhf]][cirrus-ci]            |
-| Linux/armv7-neon-hf | [![Status][libretro_linux-armv7-neon-hf]][cirrus-ci]    |
-| Linux/arm64         | [![Status][libretro_linux-arm64]][cirrus-ci]            |
-| Android/arm         | [![Status][libretro_android-arm]][cirrus-ci]            |
-| Android/arm64       | [![Status][libretro_android-arm64]][cirrus-ci]          |
-| Emscripten          | [![Status][libretro_emscripten]][cirrus-ci]             |
-| macOS/amd64         | [![Status][libretro_macOS-amd64]][cirrus-ci]            |
-| Nintendo Wii        | [![Status][libretro_nintendo-wii]][cirrus-ci]           |
-| Nintendo Switch     | [![Status][libretro_nintendo-switch-libnx]][cirrus-ci]  |
-| Nintendo GameCube   | [![Status][libretro_nintendo-ngc]][cirrus-ci]           |
-| PSP                 | [![Status][libretro_playstation-psp]][cirrus-ci]        |
+```bash
+make -j1 CFLAGS="-O3 -mcpu=cortex-a53 -funsafe-math-optimizations" \
+         CXXFLAGS="-O3 -mcpu=cortex-a53 -funsafe-math-optimizations -std=gnu++17"
+```
 
-[libretro_linux-amd64]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_linux-amd64
-[libretro_linux-i386]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_linux-i386
-[libretro_linux-armhf]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_linux-armhf
-[libretro_linux-armv7-neon-hf]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_linux-armv7-neon-hf
-[libretro_linux-arm64]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_linux-arm64
-[libretro_android-arm]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_android-arm
-[libretro_android-arm64]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_android-arm64
-[libretro_emscripten]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_emscripten
-[libretro_macOS-amd64]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_macOS-amd64
-[libretro_nintendo-wii]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_nintendo-wii
-[libretro_nintendo-switch-libnx]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_nintendo-switch-libnx
-[libretro_nintendo-ngc]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_nintendo-ngc
-[libretro_playstation-psp]: https://api.cirrus-ci.com/github/snes9xgit/snes9x.svg?task=libretro_playstation-psp
+## Usage
+
+### Launching Games
+You can launch a ROM directly from the command line:
+```bash
+./snes9x ~/roms/SuperMarioWorld.zip
+```
+
+### ROM Selection Menu
+If you execute `./snes9x` without parameters, the emulator will launch a blue graphical menu listing all ROMs available in `~/roms`.
+- **Supported extensions**: `.sfc`, `.zip`.
+- **Navigation**: Use the **D-pad** (up/down) to move and **Action Buttons** (A/B/X/Y) to select.
+- **Home Button**: 
+  - If in the menu: Quits the application.
+  - If in a game: Returns to the ROM selection menu (properly freeing memory and saving SRAM).
+
+## Standards 
+This repository contains specific architectural decisions that contribute to its stability and performance:
+
+1.  **Methodology**: The project development follows a methodical approach: code investigation -> core understanding -> implementation with quality standards -> remote compilation -> error resolution.
+2.  **Audio Implementation**: Audio is handled via an SDL callback system. The emulator core generates samples into an internal resampler, which the SDL thread then pulls and mixes. 
+3.  **Input Hotplug**: Input events (added/removed) are handled dynamically using SDL instance IDs mapped to SNES pad slots.
+4.  **Memory Management**: When returning to the menu from a game, `Memory.Deinit()` is called, which has been enhanced to explicitly clear and shrink vector storage to prevent memory fragmentation on low-RAM devices.
+5.  **Build System**: The `sdl/Makefile` is a customized version that handles mixed C and C++ sources with standard-specific flags (avoiding `gnu++17` for C-only files like `unzip`).
+
+When working on this project, maintain the modularity and reuse patterns already established in `sdlmain.cpp`, `sdlvideo.cpp`, and `sdlinput.cpp`.
