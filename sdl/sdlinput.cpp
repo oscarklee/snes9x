@@ -43,10 +43,16 @@
 
 #include <map>
 
+#define SPEED_SLOW_PERCENT 25
+#define SPEED_FAST_PERCENT 175
+
 using namespace std;
 std::map <string, int> name_sdlkeysym;
 static std::map<SDL_JoystickID, SDL_Joystick*> open_joysticks;
 static std::map<SDL_JoystickID, int> instance_to_pad;
+
+static bool button4_held = false;
+static bool button5_held = false;
 
 ConfigFile::secvec_t	keymaps;
 
@@ -262,12 +268,12 @@ void S9xParseInputConfig (ConfigFile &conf, int pass)
 		keymaps.push_back(strpair_t("J00:B1",         "Joypad1 A"));
 		keymaps.push_back(strpair_t("J00:B2",         "Joypad1 X"));
 		keymaps.push_back(strpair_t("J00:B3",         "Joypad1 Y"));
-		keymaps.push_back(strpair_t("J00:B4",         "Joypad1 L"));
-		keymaps.push_back(strpair_t("J00:B5",         "Joypad1 R"));
 		keymaps.push_back(strpair_t("J00:B6",         "Joypad1 L"));
 		keymaps.push_back(strpair_t("J00:B7",         "Joypad1 R"));
 		keymaps.push_back(strpair_t("J00:B8",         "Joypad1 Select"));
 		keymaps.push_back(strpair_t("J00:B9",         "Joypad1 Start"));
+		keymaps.push_back(strpair_t("J00:B11",        "QuickSave000"));
+		keymaps.push_back(strpair_t("J00:B12",        "QuickLoad000"));
 		keymaps.push_back(strpair_t("J00:B13",        "Joypad1 Up"));
 		keymaps.push_back(strpair_t("J00:B14",        "Joypad1 Down"));
 		keymaps.push_back(strpair_t("J00:B15",        "Joypad1 Left"));
@@ -412,6 +418,18 @@ void S9xProcessEvents (bool8 block)
 
 		case SDL_JOYBUTTONDOWN:
 		case SDL_JOYBUTTONUP:
+            if (event.jbutton.button == 4 || event.jbutton.button == 5)
+            {
+                if (event.jbutton.button == 4) button4_held = (event.type == SDL_JOYBUTTONDOWN);
+                if (event.jbutton.button == 5) button5_held = (event.type == SDL_JOYBUTTONDOWN);
+
+                uint32 baseFrameTime = Settings.PAL ? Settings.FrameTimePAL : Settings.FrameTimeNTSC;
+                if (button4_held) Settings.FrameTime = baseFrameTime * 100 / SPEED_SLOW_PERCENT;
+                else if (button5_held) Settings.FrameTime = baseFrameTime * 100 / SPEED_FAST_PERCENT;
+                else Settings.FrameTime = baseFrameTime;
+                break;
+            }
+
             if (event.type == SDL_JOYBUTTONDOWN)
             {
                 if (event.jbutton.button == 10) // HOME
