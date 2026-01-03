@@ -710,9 +710,9 @@ int main (int argc, char **argv)
 	s9x_base_dir = std::string(getenv("HOME")) + SLASH_STR + ".snes9x";
 
 	memset(&Settings, 0, sizeof(Settings));
-	Settings.MouseMaster = TRUE;
-	Settings.SuperScopeMaster = TRUE;
-	Settings.JustifierMaster = TRUE;
+	Settings.MouseMaster = FALSE;
+	Settings.SuperScopeMaster = FALSE;
+	Settings.JustifierMaster = FALSE;
 	Settings.MultiPlayer5Master = TRUE;
 	Settings.FrameTimePAL = 20000;
 	Settings.FrameTimeNTSC = 16667;

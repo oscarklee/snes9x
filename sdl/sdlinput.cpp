@@ -394,7 +394,6 @@ void S9xProcessEvents (bool8 block)
     {
         if (event_count > 0)
         {
-            printf("SDL Input: Processed %u events in the last 5 seconds.\n", (unsigned int)event_count);
             event_count = 0;
         }
         last_log_time = now;

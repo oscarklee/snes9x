@@ -250,6 +250,8 @@ void S9xInitDisplay (int argc, char **argv)
 										SDL_TEXTUREACCESS_TARGET,
 										SNES_WIDTH * 2, SNES_HEIGHT_EXTENDED);
 
+	SDL_ShowCursor(SDL_DISABLE);
+
 	S9xGraphicsInit();
 	GUI.blit_screen       = (uint8 *) GUI.sdl_screen->pixels;
 	GUI.blit_screen_pitch = SNES_WIDTH * 2 * 2; // window size =(*2); 2 byte pir pixel =(*2)
@@ -269,14 +271,6 @@ void S9xDeinitDisplay (void)
 
 void S9xPutImage (int width, int height)
 {
-    static int fc = 0;
-    fc++;
-    if (fc < 10 || (fc < 600 && fc % 60 == 0)) {
-        int nonzero = 0;
-        uint16_t *buf = (uint16_t*)GFX.Screen;
-        for (int i = 0; i < 512*240; i++) if (buf[i] != 0) nonzero++;
-        printf("Frame %d: ForcedBlanking=%d nonzero=%d\n", fc, PPU.ForcedBlanking, nonzero);
-    }
 	static int	prevWidth = 0, prevHeight = 0;
 	Blitter		blitFn = NULL;
 
