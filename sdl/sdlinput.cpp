@@ -36,6 +36,10 @@
 #include "snes9x.h"
 #include "port.h"
 #include "controls.h"
+#include "apu/apu.h"
+#include "memmap.h"
+#include "cheats.h"
+#include "display.h"
 
 using namespace std;
 std::map <string, int> name_sdlkeysym;
@@ -364,6 +368,44 @@ void S9xProcessEvents (bool8 block)
 
 		case SDL_JOYBUTTONDOWN:
 		case SDL_JOYBUTTONUP:
+            if (event.type == SDL_JOYBUTTONDOWN)
+            {
+                if (event.jbutton.button == 10) // HOME
+                {
+                    if (g_state == STATE_MENU)
+                    {
+                        printf ("Quit Event. Bye.\n");
+                        S9xExit();
+                    }
+                    else
+                    {
+                        Memory.SaveSRAM(S9xGetFilename(".srm", SRAM_DIR).c_str());
+                        S9xSaveCheatFile(S9xGetFilename(".cht", CHEAT_DIR).c_str());
+                        Settings.StopEmulation = TRUE;
+                        S9xSetSoundMute(TRUE);
+                        S9xMenuInit();
+                        return;
+                    }
+                }
+
+                if (g_state == STATE_MENU)
+                {
+                    if (event.jbutton.button == 13) // Up
+                    {
+                        if (g_menu_selection > 0) g_menu_selection--;
+                    }
+                    else if (event.jbutton.button == 14) // Down
+                    {
+                        if (g_menu_selection < (int)g_rom_list.size() - 1) g_menu_selection++;
+                    }
+                    else if (event.jbutton.button <= 3) // Select
+                    {
+                        S9xMenuLoadSelected();
+                    }
+                    return;
+                }
+            }
+
 			S9xReportButton(0x80000000 | // joystick button
 					(event.jbutton.which << 24) | // joystick index
 					event.jbutton.button, // joystick button code

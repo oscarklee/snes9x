@@ -79,6 +79,10 @@ static std::string	snapshot_filename;
 static std::string	play_smv_filename;
 static std::string	record_smv_filename;
 
+int g_state = STATE_MENU;
+std::vector<std::string> g_rom_list;
+int g_menu_selection = 0;
+
 S9xSDLSoundDriver *SoundDriver = nullptr;
 uint32           sound_buffer_size; // used in sdlaudio
 
@@ -138,6 +142,7 @@ void S9xExtraUsage (void) // domaemon: ExtraUsage -> ExtraDisplayUsage
 	S9xMessage(S9X_INFO, S9X_USAGE, "-dumpstreams                    Save audio/video data to disk");
 	S9xMessage(S9X_INFO, S9X_USAGE, "-dumpmaxframes <num>            Stop emulator after saving specified number of");
 	S9xMessage(S9X_INFO, S9X_USAGE, "                                frames (use with -dumpstreams)");
+	S9xMessage(S9X_INFO, S9X_USAGE, "-help                           Show this useful information");
 	S9xMessage(S9X_INFO, S9X_USAGE, "");
 
 	S9xExtraDisplayUsage();
@@ -700,10 +705,89 @@ static void sigbrkhandler (int)
 }
 #endif
 
+bool8 S9xLoadROM (const char *filename)
+{
+    Memory.Init();
+	bool8 loaded = Memory.LoadROM(filename);
+
+	if (!loaded && filename[0])
+	{
+		SplitPath path = splitpath(filename);
+		std::string s = S9xGetDirectory(ROM_DIR) + SLASH_STR + path.stem + path.ext;
+		loaded = Memory.LoadROM(s.c_str());
+	}
+
+    if (loaded)
+    {
+        NSRTControllerSetup();
+        Memory.LoadSRAM(S9xGetFilename(".srm", SRAM_DIR).c_str());
+        S9xLoadCheatFile(S9xGetFilename(".cht", CHEAT_DIR).c_str());
+
+        sprintf(String, "\"%s\" %s: %s", Memory.ROMName, TITLE, VERSION);
+        S9xSetTitle(String);
+        S9xSetSoundMute(FALSE);
+        g_state = STATE_GAME;
+    }
+
+    return loaded;
+}
+
+void S9xMenuInit (void)
+{
+    if (g_state == STATE_GAME)
+    {
+        Settings.StopEmulation = TRUE;
+        S9xSetSoundMute(TRUE);
+        Memory.Deinit();
+    }
+
+    g_rom_list.clear();
+    std::string rom_dir = std::string(getenv("HOME")) + SLASH_STR + "roms";
+    DIR *dir = opendir(rom_dir.c_str());
+    if (dir)
+    {
+        struct dirent *ent;
+        while ((ent = readdir(dir)) != NULL)
+        {
+            std::string name = ent->d_name;
+            if (name.size() > 4)
+            {
+                std::string ext = name.substr(name.size() - 4);
+                if (ext == ".sfc" || ext == ".zip")
+                {
+                    g_rom_list.push_back(name);
+                }
+            }
+        }
+        closedir(dir);
+    }
+    g_menu_selection = 0;
+    g_state = STATE_MENU;
+    S9xSetTitle("Snes9x - ROM Selection");
+}
+
+void S9xMenuLoadSelected (void)
+{
+    if (g_menu_selection >= 0 && g_menu_selection < (int)g_rom_list.size())
+    {
+        std::string rom_path = std::string(getenv("HOME")) + SLASH_STR + "roms" + SLASH_STR + g_rom_list[g_menu_selection];
+        if (S9xLoadROM(rom_path.c_str()))
+        {
+            g_state = STATE_GAME;
+        }
+    }
+}
+
 int main (int argc, char **argv)
 {
-	if (argc < 2)
-		S9xUsage();
+	for (int i = 1; i < argc; i++)
+	{
+		if (!strcasecmp(argv[i], "-help") || !strcasecmp(argv[i], "--help"))
+		{
+			S9xUsage();
+			return 0;
+		}
+	}
 
 	printf("\n\nSnes9x " VERSION " for unix/SDL\n");
 
@@ -790,29 +874,18 @@ int main (int argc, char **argv)
 
 			loaded = Memory.LoadMultiCart(s1.c_str(), s2.c_str());
 		}
+        if (loaded) g_state = STATE_GAME;
 	}
 	else
 	if (!rom_filename.empty())
 	{
-		loaded = Memory.LoadROM(rom_filename.c_str());
-
-		if (!loaded)
-		{
-			SplitPath path = splitpath(rom_filename);
-			std::string s = S9xGetDirectory(ROM_DIR) + SLASH_STR + path.stem + path.ext;
-			loaded = Memory.LoadROM(s.c_str());
-		}
+        loaded = S9xLoadROM(rom_filename.c_str());
 	}
 
-	if (!loaded)
+	if (!loaded && !Settings.Multi)
 	{
-		fprintf(stderr, "Error opening the ROM file.\n");
-		exit(1);
+		S9xMenuInit();
 	}
-
-	NSRTControllerSetup();
-	Memory.LoadSRAM(S9xGetFilename(".srm", SRAM_DIR).c_str());
-	S9xLoadCheatFile(S9xGetFilename(".cht", CHEAT_DIR).c_str());
 
 	CPU.Flags = saved_flags;
 	Settings.StopEmulation = FALSE;
@@ -902,6 +975,14 @@ int main (int argc, char **argv)
 
 	while (1)
 	{
+        if (g_state == STATE_MENU)
+        {
+            S9xMenuDraw();
+            S9xProcessEvents(FALSE);
+            SDL_Delay(16);
+            continue;
+        }
+
 	#ifdef NETPLAY_SUPPORT
 		if (NP_Activated)
 		{

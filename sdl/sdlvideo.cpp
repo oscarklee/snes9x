@@ -49,6 +49,7 @@
 #include "conffile.h"
 #include "blit.h"
 #include "display.h"
+#include "font.h"
 
 #include "sdl_snes9x.h"
 
@@ -372,4 +373,66 @@ void S9xSetTitle (const char *string)
 void S9xSetPalette (void)
 {
 	return;
+}
+
+static void S9xDrawText(int x, int y, const char *text, uint32 color)
+{
+    while (*text)
+    {
+        uint8 c = (uint8)*text;
+        if (c >= 32 && c <= 127)
+        {
+            int block = (c - 32) / 16;
+            int offset = (c % 16) * 8;
+            int start_line = 9 * block + block;
+            
+            for (int row = 0; row < 9; row++)
+            {
+                const char *p = font[start_line + row] + offset;
+                for (int col = 0; col < 8; col++)
+                {
+                    if (p[col] == '#')
+                    {
+                        SDL_SetRenderDrawColor(GUI.sdlRenderer, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF, 255);
+                        SDL_Rect r = { x + col * 2, y + row * 2, 2, 2 };
+                        SDL_RenderFillRect(GUI.sdlRenderer, &r);
+                    }
+                }
+            }
+        }
+        x += 16;
+        text++;
+    }
+}
+
+void S9xMenuDraw (void)
+{
+    SDL_SetRenderTarget(GUI.sdlRenderer, GUI.sdlTexture);
+    SDL_SetRenderDrawColor(GUI.sdlRenderer, 0, 0, 128, 255);
+    SDL_RenderClear(GUI.sdlRenderer);
+
+    S9xDrawText(20, 20, "Snes9x - Select a ROM", 0xFFFFFF);
+    S9xDrawText(20, 40, "---------------------", 0xFFFFFF);
+
+    int start = 0;
+    if (g_menu_selection > 18) start = g_menu_selection - 18;
+
+    for (int i = start; i < (int)g_rom_list.size() && i < start + 20; i++)
+    {
+        uint32 color = (i == g_menu_selection) ? 0xFFFF00 : 0xFFFFFF;
+        char label[64];
+        const char *prefix = (i == g_menu_selection) ? "> " : "  ";
+        snprintf(label, sizeof(label), "%s%s", prefix, g_rom_list[i].c_str());
+        S9xDrawText(20, 70 + (i - start) * 18, label, color);
+    }
+
+    if (g_rom_list.empty())
+    {
+        S9xDrawText(20, 70, "No ROMs found in ~/roms", 0xFF0000);
+    }
+
+    SDL_SetRenderTarget(GUI.sdlRenderer, NULL);
+    SDL_RenderClear(GUI.sdlRenderer);
+    SDL_RenderCopy(GUI.sdlRenderer, GUI.sdlTexture, NULL, GUI.p_screen_rect);
+    SDL_RenderPresent(GUI.sdlRenderer);
 }
