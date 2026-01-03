@@ -332,9 +332,12 @@ void S9xProcessEvents (bool8 block)
 {
 	SDL_Event event;
 	bool8 quit_state = FALSE;
+    static uint32 event_count = 0;
+    static uint32 last_log_time = 0;
 
 	while (block ? SDL_WaitEvent(&event) : SDL_PollEvent(&event))
 	{
+        event_count++;
 		switch (event.type) {
 		case SDL_KEYDOWN:
 		case SDL_KEYUP:
@@ -364,7 +367,7 @@ void S9xProcessEvents (bool8 block)
 		case SDL_JOYAXISMOTION:
 			S9xReportAxis(0x80008000 | // joystick axis
 				      (event.jaxis.which << 24) | // joystick index
-				      (event.jaxis.axis << 16), // joystick axis
+				      event.jaxis.axis, // joystick axis
 				      event.jaxis.value); // axis value
 			break;
 
@@ -376,9 +379,20 @@ void S9xProcessEvents (bool8 block)
 			break;
 		}
 
-		if (!block)
+		if (block)
 			break;
 	}
+
+    uint32 now = SDL_GetTicks();
+    if (now - last_log_time >= 5000)
+    {
+        if (event_count > 0)
+        {
+            printf("SDL Input: Processed %u events in the last 5 seconds.\n", (unsigned int)event_count);
+            event_count = 0;
+        }
+        last_log_time = now;
+    }
 	
 	if (quit_state == TRUE)
 	{

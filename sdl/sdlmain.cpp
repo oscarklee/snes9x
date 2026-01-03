@@ -649,7 +649,11 @@ void S9xSyncSpeed (void)
 	{
 		// If we're ahead of time, sleep a while.
 		unsigned	timeleft = (next1.tv_sec - now.tv_sec) * 1000000 + next1.tv_usec - now.tv_usec;
-		usleep(timeleft);
+        if (timeleft > 1000)
+        {
+		    SDL_Delay(timeleft / 1000);
+            S9xProcessEvents(FALSE);
+        }
 
 		while (gettimeofday(&now, NULL) == -1) ;
 		// Continue with a while-loop because usleep() could be interrupted by a signal.
