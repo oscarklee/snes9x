@@ -12,14 +12,16 @@
 
 struct BoxartEntry {
     SDL_Texture* texture;
+    SDL_Texture* blurred;
     std::string localPath;
     bool loaded;
     bool queued;
     
-    BoxartEntry() : texture(nullptr), loaded(false), queued(false) {}
+    BoxartEntry() : texture(nullptr), blurred(nullptr), loaded(false), queued(false) {}
     
     void destroy() {
         if (texture) { SDL_DestroyTexture(texture); texture = nullptr; }
+        if (blurred) { SDL_DestroyTexture(blurred); blurred = nullptr; }
         loaded = false;
     }
 };
@@ -33,10 +35,11 @@ struct BoxartTask {
 struct BoxartResult {
     std::string romName;
     SDL_Surface* surface;
+    SDL_Surface* blurred;
     bool success;
     bool isDisplay;
     
-    BoxartResult() : surface(nullptr), success(false), isDisplay(false) {}
+    BoxartResult() : surface(nullptr), blurred(nullptr), success(false), isDisplay(false) {}
 };
 
 class BoxartManager {
@@ -82,6 +85,7 @@ private:
     SDL_Surface* loadImageSurface(const std::string& path);
     SDL_Texture* createPlaceholderTexture(const std::string& name);
     void cropAndScale(SDL_Surface*& surface, int targetW, int targetH);
+    SDL_Surface* applyBoxBlur(SDL_Surface* src, int radius);
 };
 
 #endif

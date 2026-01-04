@@ -35,12 +35,16 @@ public:
     
     void moveLeft();
     void moveRight();
+    void moveUp();
+    void moveDown();
     
     int getSelectedIndex() const;
     std::string getSelectedRomPath() const;
     std::string getSelectedRomName() const;
     
     bool hasRoms() const { return !romList.empty(); }
+    void saveState();
+    void loadState();
 
 private:
     SDL_Renderer* renderer;
@@ -53,6 +57,10 @@ private:
     SpringAnimation animation;
     uint32_t lastFrameTime;
 
+    SDL_Texture* backgroundGradient;
+    SDL_Texture* reflectionOverlay;
+
+    void createStaticTextures();
     int wrap(int min, int max, int value) const;
     
     float calculateScale(float absOffset) const;

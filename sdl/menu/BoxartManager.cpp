@@ -202,6 +202,10 @@ void BoxartManager::processTask(const BoxartTask& task) {
         if (surface) {
             cropAndScale(surface, 256, 178); // Optimized size
             result.surface = surface;
+            
+            // Generate a single blurred version for side cards
+            result.blurred = applyBoxBlur(surface, 2);
+            
             result.success = true;
         }
     } else if (exists && task.isDownload) {
@@ -229,7 +233,11 @@ void BoxartManager::pollResults() {
             
             if (res.success && res.isDisplay && res.surface) {
                 entry.texture = SDL_CreateTextureFromSurface(renderer, res.surface);
-                // No more NONE blend mode, let's keep it standard for now but optimized pixel format
+                
+                if (res.blurred) {
+                    entry.blurred = SDL_CreateTextureFromSurface(renderer, res.blurred);
+                    SDL_FreeSurface(res.blurred);
+                }
                 
                 entry.loaded = true;
                 entry.localPath = getLocalPath(res.romName);
@@ -244,6 +252,7 @@ void BoxartManager::pollResults() {
         } else {
             // Clean up if the entry was removed from cache while processing
             if (res.surface) SDL_FreeSurface(res.surface);
+            if (res.blurred) SDL_FreeSurface(res.blurred);
         }
     }
 }
@@ -353,6 +362,34 @@ void BoxartManager::cropAndScale(SDL_Surface*& surface, int targetW, int targetH
     surface = optimized;
 }
 
+SDL_Surface* BoxartManager::applyBoxBlur(SDL_Surface* src, int radius) {
+    if (!src || radius <= 0) return nullptr;
+    SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 16, SDL_PIXELFORMAT_RGB565);
+    if (!dst) return nullptr;
+    Uint16* srcPixels = (Uint16*)src->pixels;
+    Uint16* dstPixels = (Uint16*)dst->pixels;
+    int w = src->w;
+    int h = src->h;
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            int r = 0, g = 0, b = 0, count = 0;
+            for (int ky = -radius; ky <= radius; ky++) {
+                for (int kx = -radius; kx <= radius; kx++) {
+                    int px = std::max(0, std::min(w - 1, x + kx));
+                    int py = std::max(0, std::min(h - 1, y + ky));
+                    Uint16 pixel = srcPixels[py * w + px];
+                    r += (pixel >> 11) & 0x1F;
+                    g += (pixel >> 5) & 0x3F;
+                    b += pixel & 0x1F;
+                    count++;
+                }
+            }
+            dstPixels[y * w + x] = ((r/count) << 11) | ((g/count) << 5) | (b/count);
+        }
+    }
+    return dst;
+}
+
 SDL_Texture* BoxartManager::createPlaceholderTexture(const std::string& name) {
     if (!renderer) return nullptr;
     SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, 512, 357, 32, SDL_PIXELFORMAT_RGBA8888);
@@ -365,6 +402,7 @@ SDL_Texture* BoxartManager::createPlaceholderTexture(const std::string& name) {
 SDL_Texture* BoxartManager::getTexture(const std::string& romName, int blurLevel) {
     auto it = cache.find(romName);
     if (it == cache.end() || !it->second.loaded) return placeholderTexture;
+    if (blurLevel > 0 && it->second.blurred) return it->second.blurred;
     return it->second.texture;
 }
 

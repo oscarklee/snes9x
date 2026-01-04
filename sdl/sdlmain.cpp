@@ -695,6 +695,7 @@ void S9xSyncSpeed (void)
 
 void S9xExit (void)
 {
+	if (g_carousel) g_carousel->saveState();
 	S9xMovieShutdown();
 
 	S9xSetSoundMute(TRUE);
@@ -808,9 +809,24 @@ void S9xMenuMoveRight(void)
     }
 }
 
+void S9xMenuMoveUp(void)
+{
+    if (g_carousel) {
+        g_carousel->moveUp();
+    }
+}
+
+void S9xMenuMoveDown(void)
+{
+    if (g_carousel) {
+        g_carousel->moveDown();
+    }
+}
+
 void S9xMenuLoadSelected (void)
 {
     if (g_carousel && g_carousel->hasRoms()) {
+        g_carousel->saveState(); // Save before loading ROM
         std::string rom_path = g_carousel->getSelectedRomPath();
         if (!rom_path.empty() && S9xLoadROM(rom_path.c_str())) {
             g_state = STATE_GAME;

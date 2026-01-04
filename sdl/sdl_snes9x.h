@@ -30,6 +30,8 @@ void S9xMenuUpdate(float deltaTime);
 void S9xMenuLoadSelected(void);
 void S9xMenuMoveLeft(void);
 void S9xMenuMoveRight(void);
+void S9xMenuMoveUp(void);
+void S9xMenuMoveDown(void);
 bool8 S9xLoadROM(const char *filename);
 void S9xDeinitInputDevices(void);
 

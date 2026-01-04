@@ -12,7 +12,8 @@ static const int FONT_HEIGHT = 10;
 
 MenuCarousel::MenuCarousel() 
     : renderer(nullptr), screenWidth(0), screenHeight(0),
-      activeIndex(0), lastFrameTime(0) {
+      activeIndex(0), lastFrameTime(0),
+      backgroundGradient(nullptr), reflectionOverlay(nullptr) {
     animation.speed = 15.0f; 
 }
 
@@ -29,11 +30,106 @@ void MenuCarousel::init(SDL_Renderer* r, int w, int h) {
     boxartManager.init(renderer);
     animation.setPosition(0.0f);
     animation.setTarget(0.0f);
+
+    createStaticTextures();
 }
 
 void MenuCarousel::shutdown() {
+    saveState();
     boxartManager.shutdown();
     romList.clear();
+    if (backgroundGradient) { SDL_DestroyTexture(backgroundGradient); backgroundGradient = nullptr; }
+    if (reflectionOverlay) { SDL_DestroyTexture(reflectionOverlay); reflectionOverlay = nullptr; }
+}
+
+void MenuCarousel::saveState() {
+    const char* home = getenv("HOME");
+    if (!home || romList.empty()) return;
+    
+    std::string path = std::string(home) + "/.snes9x/last_rom";
+    FILE* f = fopen(path.c_str(), "w");
+    if (f) {
+        int idx = getSelectedIndex();
+        if (idx >= 0 && idx < (int)romList.size()) {
+            fprintf(f, "%s", romList[idx].filename.c_str());
+        }
+        fclose(f);
+    }
+}
+
+void MenuCarousel::loadState() {
+    const char* home = getenv("HOME");
+    if (!home || romList.empty()) return;
+    
+    std::string path = std::string(home) + "/.snes9x/last_rom";
+    FILE* f = fopen(path.c_str(), "r");
+    if (f) {
+        char buf[512];
+        if (fgets(buf, sizeof(buf), f)) {
+            std::string lastRom = buf;
+            // Robust trimming of whitespace and newlines
+            size_t last = lastRom.find_last_not_of(" \n\r\t");
+            if (last != std::string::npos) {
+                lastRom = lastRom.substr(0, last + 1);
+            }
+            
+            for (size_t i = 0; i < romList.size(); i++) {
+                if (romList[i].filename == lastRom) {
+                    activeIndex = (int)i;
+                    animation.setPosition((float)i);
+                    animation.setTarget((float)i);
+                    printf("Menu: Restored selection to [%zu] %s\n", i, lastRom.c_str());
+                    break;
+                }
+            }
+        }
+        fclose(f);
+    }
+}
+
+void MenuCarousel::createStaticTextures() {
+    if (!renderer) return;
+
+    // Create background gradient (1x256)
+    // We'll make it go dark grey -> purple-ish -> dark grey
+    SDL_Surface* bgSurf = SDL_CreateRGBSurfaceWithFormat(0, 1, 256, 32, SDL_PIXELFORMAT_RGBA8888);
+    Uint32* pixels = (Uint32*)bgSurf->pixels;
+    for (int y = 0; y < 256; y++) {
+        float t = (float)y / 255.0f;
+        Uint8 r, g, b;
+        if (t < 0.5f) {
+            float localT = t * 2.0f;
+            // Dark grey (0x0f, 0x0f, 0x11) to Dark Purple (0x2a, 0x1a, 0x35)
+            r = (Uint8)(0x0f + localT * (0x2a - 0x0f));
+            g = (Uint8)(0x0f + localT * (0x1a - 0x0f));
+            b = (Uint8)(0x11 + localT * (0x35 - 0x11));
+        } else {
+            float localT = (t - 0.5f) * 2.0f;
+            // Dark Purple back to Dark grey
+            r = (Uint8)(0x2a - localT * (0x2a - 0x0f));
+            g = (Uint8)(0x1a - localT * (0x1a - 0x0f));
+            b = (Uint8)(0x35 - localT * (0x35 - 0x11));
+        }
+        pixels[y] = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+    }
+    backgroundGradient = SDL_CreateTextureFromSurface(renderer, bgSurf);
+    SDL_FreeSurface(bgSurf);
+
+    // Create reflection overlay (1x128 vertical fade to background color)
+    SDL_Surface* refSurf = SDL_CreateRGBSurfaceWithFormat(0, 1, 128, 32, SDL_PIXELFORMAT_RGBA8888);
+    pixels = (Uint32*)refSurf->pixels;
+    for (int y = 0; y < 128; y++) {
+        float t = (float)y / 127.0f;
+        // Power function for steeper fade (as requested)
+        // This will make it fade to background color much faster
+        float factor = std::pow(t, 0.5f); 
+        Uint8 alpha = (Uint8)(factor * 255);
+        // The background color at the reflection position is roughly 0x0f, 0x0f, 0x11
+        pixels[y] = (0x0f << 24) | (0x0f << 16) | (0x11 << 8) | alpha;
+    }
+    reflectionOverlay = SDL_CreateTextureFromSurface(renderer, refSurf);
+    SDL_SetTextureBlendMode(reflectionOverlay, SDL_BLENDMODE_BLEND);
+    SDL_FreeSurface(refSurf);
 }
 
 void MenuCarousel::setLibretroNames(const std::vector<std::string>& names) {
@@ -90,6 +186,8 @@ void MenuCarousel::scanRomDirectory(const std::string& romDir) {
     animation.setPosition(0.0f);
     animation.setTarget(0.0f);
 
+    loadState();
+
     // Initial bulk download in outside-in pattern (Process for memory as well)
     int n = (int)romList.size();
     if (n > 0) {
@@ -135,6 +233,18 @@ void MenuCarousel::moveLeft() {
 void MenuCarousel::moveRight() {
     if (romList.empty()) return;
     activeIndex++;
+    animation.setTarget((float)activeIndex);
+}
+
+void MenuCarousel::moveUp() {
+    if (romList.empty()) return;
+    activeIndex -= 10;
+    animation.setTarget((float)activeIndex);
+}
+
+void MenuCarousel::moveDown() {
+    if (romList.empty()) return;
+    activeIndex += 10;
     animation.setTarget((float)activeIndex);
 }
 
@@ -191,16 +301,40 @@ float MenuCarousel::calculateBrightness(float absOffset) const {
 }
 
 int MenuCarousel::calculateBlurLevel(float absOffset) const {
-    return 0;
+    if (absOffset < 0.5f) return 0;
+    return 1;
 }
 
 void MenuCarousel::renderBackground() {
-    SDL_SetRenderDrawColor(renderer, 0x10, 0x10, 0x15, 0xFF);
-    SDL_RenderClear(renderer);
+    if (backgroundGradient) {
+        SDL_RenderCopy(renderer, backgroundGradient, nullptr, nullptr);
+    } else {
+        SDL_SetRenderDrawColor(renderer, 0x10, 0x10, 0x15, 0xFF);
+        SDL_RenderClear(renderer);
+    }
 }
 
 void MenuCarousel::renderReflection(int x, int y, int w, int h, const std::string& romName, float opacity) {
-    // Reflection removed for performance
+    SDL_Texture* tex = boxartManager.getTexture(romName, 1); // Use blurred for reflection
+    if (!tex || tex == boxartManager.getTexture("NON_EXISTENT")) return;
+
+    // 1. Render flipped boxart with very low base opacity (even lower as requested)
+    SDL_SetTextureAlphaMod(tex, (Uint8)(opacity * 40)); 
+    SDL_Rect dst = {x - w/2, y, w, h};
+    SDL_RenderCopyEx(renderer, tex, nullptr, &dst, 0, nullptr, SDL_FLIP_VERTICAL);
+    SDL_SetTextureAlphaMod(tex, 255); // Reset
+
+    // 2. Overlay the fade-out gradient
+    if (reflectionOverlay) {
+        SDL_RenderCopy(renderer, reflectionOverlay, nullptr, &dst);
+    }
+
+    // 3. Simulate rounding for reflection
+    SDL_SetRenderDrawColor(renderer, 0x0f, 0x0f, 0x11, 0xFF);
+    SDL_RenderDrawPoint(renderer, dst.x, dst.y);
+    SDL_RenderDrawPoint(renderer, dst.x + dst.w - 1, dst.y);
+    SDL_RenderDrawPoint(renderer, dst.x, dst.y + dst.h - 1);
+    SDL_RenderDrawPoint(renderer, dst.x + dst.w - 1, dst.y + dst.h - 1);
 }
 
 void MenuCarousel::renderTitle(const std::string& title, int x, int y) {
@@ -223,7 +357,7 @@ void MenuCarousel::renderTitle(const std::string& title, int x, int y) {
     SDL_RenderFillRect(renderer, &bg);
     
     // Simple rounding by clearing 1x1 corners (using background color approximation)
-    SDL_SetRenderDrawColor(renderer, 0x1a, 0x1a, 0x20, 0xFF); 
+    SDL_SetRenderDrawColor(renderer, 0x1a, 0x15, 0x25, 0xFF); // Matching the purple-ish mid-section
     SDL_RenderDrawPoint(renderer, bg.x, bg.y);
     SDL_RenderDrawPoint(renderer, bg.x + bg.w - 1, bg.y);
     SDL_RenderDrawPoint(renderer, bg.x, bg.y + bg.h - 1);
@@ -295,11 +429,15 @@ void MenuCarousel::renderCard(int offset, const RomEntry& rom, float animPos) {
     float absOffset = std::abs(visualOffset);
     float scale = calculateScale(absOffset);
     float brightness = calculateBrightness(absOffset);
+    int blurLevel = calculateBlurLevel(absOffset);
     
     int w = (int)(CARD_WIDTH * scale);
     int h = (int)(CARD_HEIGHT * scale);
     
-    SDL_Texture* tex = boxartManager.getTexture(rom.filename, 0);
+    // 15px separation between image and reflection (as requested)
+    renderReflection(x, y + h/2 + 15, w, h, rom.filename, brightness * 0.4f);
+    
+    SDL_Texture* tex = boxartManager.getTexture(rom.filename, blurLevel);
     if (tex) {
         Uint8 colorMod = (Uint8)(brightness * 255);
         SDL_SetTextureColorMod(tex, colorMod, colorMod, colorMod);
@@ -307,10 +445,28 @@ void MenuCarousel::renderCard(int offset, const RomEntry& rom, float animPos) {
         SDL_RenderCopy(renderer, tex, nullptr, &dst);
     }
     
+    // Draw thin grey border with "simulated" rounded corners
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    // Dark grey border (as requested)
+    SDL_SetRenderDrawColor(renderer, 0x88, 0x88, 0x88, (Uint8)(brightness * 150));
+    
+    SDL_Rect border = {x - w/2 - 1, y - h/2 - 1, w + 2, h + 2};
+    SDL_RenderDrawRect(renderer, &border);
+    
+    // Simulate rounding by clipping corners with background color
+    if (absOffset < 2.0f) {
+        SDL_SetRenderDrawColor(renderer, 0x0f, 0x0f, 0x11, 0xFF);
+        SDL_RenderDrawPoint(renderer, border.x, border.y);
+        SDL_RenderDrawPoint(renderer, border.x + border.w - 1, border.y);
+        SDL_RenderDrawPoint(renderer, border.x, border.y + border.h - 1);
+        SDL_RenderDrawPoint(renderer, border.x + border.w - 1, border.y + border.h - 1);
+    }
+
     if (absOffset < 0.1f) {
-        SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
-        SDL_Rect border = {x - w/2 - 2, y - h/2 - 2, w + 4, h + 4};
-        SDL_RenderDrawRect(renderer, &border);
+        // Extra highlight for selection (glow effect)
+        SDL_SetRenderDrawColor(renderer, 0xaa, 0x88, 0xff, 100);
+        SDL_Rect selectionGlow = {x - w/2 - 3, y - h/2 - 3, w + 6, h + 6};
+        SDL_RenderDrawRect(renderer, &selectionGlow);
     }
 }
 

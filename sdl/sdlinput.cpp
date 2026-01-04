@@ -408,6 +408,14 @@ void S9xProcessEvents (bool8 block)
 				{
 					S9xMenuMoveRight();
 				}
+				else if (event.key.keysym.sym == SDLK_UP)
+				{
+					S9xMenuMoveUp();
+				}
+				else if (event.key.keysym.sym == SDLK_DOWN)
+				{
+					S9xMenuMoveDown();
+				}
 				else if (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_SPACE)
 				{
 					S9xMenuLoadSelected();
@@ -474,6 +482,14 @@ void S9xProcessEvents (bool8 block)
                     else if (event.jbutton.button == 16) // D-Pad Right
                     {
                         S9xMenuMoveRight();
+                    }
+                    else if (event.jbutton.button == 13) // D-Pad Up
+                    {
+                        S9xMenuMoveUp();
+                    }
+                    else if (event.jbutton.button == 14) // D-Pad Down
+                    {
+                        S9xMenuMoveDown();
                     }
                     else if (event.jbutton.button <= 3) // A/B/X/Y to select
                     {
