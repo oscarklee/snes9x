@@ -12,22 +12,14 @@
 
 struct BoxartEntry {
     SDL_Texture* texture;
-    SDL_Texture* blurred[4];
-    SDL_Texture* reflection;
     std::string localPath;
     bool loaded;
     bool queued;
     
-    BoxartEntry() : texture(nullptr), reflection(nullptr), loaded(false), queued(false) {
-        for (int i = 0; i < 4; i++) blurred[i] = nullptr;
-    }
+    BoxartEntry() : texture(nullptr), loaded(false), queued(false) {}
     
     void destroy() {
         if (texture) { SDL_DestroyTexture(texture); texture = nullptr; }
-        for (int i = 0; i < 4; i++) {
-            if (blurred[i]) { SDL_DestroyTexture(blurred[i]); blurred[i] = nullptr; }
-        }
-        if (reflection) { SDL_DestroyTexture(reflection); reflection = nullptr; }
         loaded = false;
     }
 };
@@ -41,14 +33,10 @@ struct BoxartTask {
 struct BoxartResult {
     std::string romName;
     SDL_Surface* surface;
-    SDL_Surface* blurred[4];
-    SDL_Surface* reflection;
     bool success;
-    bool isDisplay; // New flag to tell pollResults if it should create textures
+    bool isDisplay;
     
-    BoxartResult() : surface(nullptr), reflection(nullptr), success(false), isDisplay(false) {
-        for (int i = 0; i < 4; i++) blurred[i] = nullptr;
-    }
+    BoxartResult() : surface(nullptr), success(false), isDisplay(false) {}
 };
 
 class BoxartManager {
@@ -59,7 +47,7 @@ public:
     void init(SDL_Renderer* renderer);
     void shutdown();
     
-    void requestBoxart(const std::string& romName, const std::string& displayName, bool priority = false, bool isDownload = false);
+    void requestBoxart(const std::string& romName, const std::string& displayName, bool priority = false, bool isSyncOnly = false);
     void unloadBoxart(const std::string& romName);
     void pollResults();
     
@@ -74,9 +62,10 @@ private:
     std::string boxartDir;
     std::map<std::string, BoxartEntry> cache;
     std::vector<std::string> libretroNames;
+    std::mutex indexMutex; // Mutex for libretroNames
     SDL_Texture* placeholderTexture;
     
-    std::thread workerThread;
+    std::vector<std::thread> workerThreads;
     std::mutex queueMutex;
     std::condition_variable condition;
     std::deque<BoxartTask> taskQueue;
@@ -91,10 +80,8 @@ private:
     void ensureDirectoryExists();
     std::string getLocalPath(const std::string& romName);
     SDL_Surface* loadImageSurface(const std::string& path);
-    SDL_Surface* applyBoxBlur(SDL_Surface* src, int radius);
-    SDL_Surface* createReflectionSurface(SDL_Surface* original);
     SDL_Texture* createPlaceholderTexture(const std::string& name);
-    void cropToAspectRatio(SDL_Surface*& surface, float targetRatio);
+    void cropAndScale(SDL_Surface*& surface, int targetW, int targetH);
 };
 
 #endif

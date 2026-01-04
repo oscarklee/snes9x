@@ -90,14 +90,14 @@ void MenuCarousel::scanRomDirectory(const std::string& romDir) {
     animation.setPosition(0.0f);
     animation.setTarget(0.0f);
 
-    // Initial bulk download in outside-in pattern (Sync only, no memory load)
+    // Initial bulk download in outside-in pattern (Process for memory as well)
     int n = (int)romList.size();
     if (n > 0) {
-        printf("Menu: Starting bulk boxart sync (disk only) for %d ROMs...\n", n);
+        printf("Menu: Starting proactive background load for %d ROMs...\n", n);
         for (int i = 0; i < (n + 1) / 2; i++) {
-            boxartManager.requestBoxart(romList[i].filename, romList[i].displayName, false, true);
+            boxartManager.requestBoxart(romList[i].filename, romList[i].displayName, false, false);
             if (i < n - 1 - i) {
-                boxartManager.requestBoxart(romList[n - 1 - i].filename, romList[n - 1 - i].displayName, false, true);
+                boxartManager.requestBoxart(romList[n - 1 - i].filename, romList[n - 1 - i].displayName, false, false);
             }
         }
     }
@@ -122,19 +122,8 @@ void MenuCarousel::loadVisibleBoxarts() {
         }
     }
 
-    // Unload far items
-    for (size_t i = 0; i < romList.size(); i++) {
-        if (romList[i].boxartLoaded) {
-            int dist = std::abs((int)i - currentIdx);
-            if (dist > (int)romList.size() / 2) dist = (int)romList.size() - dist;
-            
-            if (dist > VISIBLE_RANGE) {
-                printf("Menu: Unloading far boxart [%zu]: %s\n", i, romList[i].filename.c_str());
-                boxartManager.unloadBoxart(romList[i].filename);
-                romList[i].boxartLoaded = false;
-            }
-        }
-    }
+    // Proactive loading: remove aggressive unloading to keep all 700+ images in memory
+    // (Total memory for all is now only ~70MB)
 }
 
 void MenuCarousel::moveLeft() {
@@ -193,48 +182,25 @@ std::string MenuCarousel::getSelectedRomName() const {
 
 float MenuCarousel::calculateScale(float absOffset) const {
     if (absOffset < 0.1f) return 1.15f;
-    return std::max(1.0f - absOffset * 0.15f, 0.65f);
+    return std::max(1.0f - absOffset * 0.15f, 0.75f);
 }
 
 float MenuCarousel::calculateBrightness(float absOffset) const {
     if (absOffset < 0.1f) return 1.0f;
-    return std::max(1.0f - absOffset * 0.4f, 0.3f);
+    return std::max(1.0f - absOffset * 0.3f, 0.5f);
 }
 
 int MenuCarousel::calculateBlurLevel(float absOffset) const {
-    if (absOffset < 0.1f) return 0;
-    return std::min((int)(absOffset * 2.0f), 4);
+    return 0;
 }
 
 void MenuCarousel::renderBackground() {
-    SDL_SetRenderDrawColor(renderer, 0x0f, 0x0f, 0x11, 0xFF);
+    SDL_SetRenderDrawColor(renderer, 0x10, 0x10, 0x15, 0xFF);
     SDL_RenderClear(renderer);
-    
-    for (int y = 0; y < screenHeight; y++) {
-        float t = (float)y / (float)screenHeight;
-        Uint8 r, g, b;
-        if (t < 0.5f) {
-            float localT = t * 2.0f;
-            r = (Uint8)(0x0f + localT * (0x1a - 0x0f));
-            g = (Uint8)(0x0f + localT * (0x1a - 0x0f));
-            b = (Uint8)(0x11 + localT * (0x20 - 0x11));
-        } else {
-            float localT = (t - 0.5f) * 2.0f;
-            r = (Uint8)(0x1a - localT * (0x1a - 0x0f));
-            g = (Uint8)(0x1a - localT * (0x1a - 0x0f));
-            b = (Uint8)(0x20 - localT * (0x20 - 0x11));
-        }
-        SDL_SetRenderDrawColor(renderer, r, g, b, 0xFF);
-        SDL_RenderDrawLine(renderer, 0, y, screenWidth, y);
-    }
 }
 
 void MenuCarousel::renderReflection(int x, int y, int w, int h, const std::string& romName, float opacity) {
-    SDL_Texture* tex = boxartManager.getReflectionTexture(romName);
-    if (!tex) return;
-    SDL_SetTextureAlphaMod(tex, (Uint8)(opacity * 255));
-    SDL_Rect dst = {x - w/2, y, w, h};
-    SDL_RenderCopyEx(renderer, tex, nullptr, &dst, 0, nullptr, SDL_FLIP_VERTICAL);
+    // Reflection removed for performance
 }
 
 void MenuCarousel::renderTitle(const std::string& title, int x, int y) {
@@ -268,9 +234,10 @@ void MenuCarousel::renderTitle(const std::string& title, int x, int y) {
     // Calculate exact width for perfect centering
     int totalWidth = 0;
     for (size_t i = 0; i < title.length(); i++) {
-        unsigned char c = title[i];
-        if (c < 32 || c > 255) c = '?';
+        unsigned char c = (unsigned char)title[i];
+        if (c < 32) c = '?';
         int cindex = c - 32;
+        if (cindex >= 224) cindex = '?' - 32;
         int kernStart = var8x10font_kern[cindex][0];
         int kernEnd = var8x10font_kern[cindex][1];
         totalWidth += (int)((FONT_WIDTH - kernStart - kernEnd) * 1.5f);
@@ -284,10 +251,11 @@ void MenuCarousel::renderText(const std::string& text, int x, int y, SDL_Color c
     
     int currentX = x;
     for (size_t i = 0; i < text.length(); i++) {
-        unsigned char c = text[i];
-        if (c < 32 || c > 255) c = '?';
+        unsigned char c = (unsigned char)text[i];
+        if (c < 32) c = '?';
         
         int cindex = c - 32;
+        if (cindex >= 224) cindex = '?' - 32;
         int kernStart = var8x10font_kern[cindex][0];
         int kernEnd = var8x10font_kern[cindex][1];
         int charWidth = FONT_WIDTH - kernStart - kernEnd;
@@ -322,29 +290,25 @@ void MenuCarousel::renderText(const std::string& text, int x, int y, SDL_Color c
 void MenuCarousel::renderCard(int offset, const RomEntry& rom, float animPos) {
     float visualOffset = (float)(activeIndex + offset) - animPos;
     int x = screenWidth / 2 + (int)(visualOffset * (CARD_WIDTH + GAP));
-    int y = screenHeight / 2 - 50;
+    int y = screenHeight / 2 - 20;
     
     float absOffset = std::abs(visualOffset);
     float scale = calculateScale(absOffset);
     float brightness = calculateBrightness(absOffset);
-    int blurLevel = calculateBlurLevel(absOffset);
     
     int w = (int)(CARD_WIDTH * scale);
     int h = (int)(CARD_HEIGHT * scale);
     
-    renderReflection(x, y + h/2 + 10, w, h, rom.filename, brightness * 0.4f);
-    
-        SDL_Texture* tex = boxartManager.getTexture(rom.filename, blurLevel);
+    SDL_Texture* tex = boxartManager.getTexture(rom.filename, 0);
     if (tex) {
         Uint8 colorMod = (Uint8)(brightness * 255);
         SDL_SetTextureColorMod(tex, colorMod, colorMod, colorMod);
         SDL_Rect dst = {x - w/2, y - h/2, w, h};
         SDL_RenderCopy(renderer, tex, nullptr, &dst);
     }
-
+    
     if (absOffset < 0.1f) {
-        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 50);
+        SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF);
         SDL_Rect border = {x - w/2 - 2, y - h/2 - 2, w + 4, h + 4};
         SDL_RenderDrawRect(renderer, &border);
     }

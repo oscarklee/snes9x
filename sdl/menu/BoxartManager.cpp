@@ -42,7 +42,9 @@ void BoxartManager::init(SDL_Renderer* r) {
     IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
     
     stopWorker = false;
-    workerThread = std::thread(&BoxartManager::workerFunc, this);
+    for (int i = 0; i < 2; i++) {
+        workerThreads.emplace_back(&BoxartManager::workerFunc, this);
+    }
     
     placeholderTexture = createPlaceholderTexture("Loading...");
 }
@@ -53,9 +55,10 @@ void BoxartManager::shutdown() {
         stopWorker = true;
     }
     condition.notify_all();
-    if (workerThread.joinable()) {
-        workerThread.join();
+    for (auto& t : workerThreads) {
+        if (t.joinable()) t.join();
     }
+    workerThreads.clear();
     
     for (auto& pair : cache) {
         pair.second.destroy();
@@ -161,20 +164,31 @@ void BoxartManager::processTask(const BoxartTask& task) {
     struct stat st;
     bool exists = (stat(localPath.c_str(), &st) == 0);
     
+    // Safety check for empty or tiny files (failed/interrupted downloads)
+    if (exists && st.st_size < 100) {
+        remove(localPath.c_str());
+        exists = false;
+    }
+
     if (!exists) {
-        if (!libretroIndexLoaded) {
-            fetchLibretroIndex();
+        {
+            std::lock_guard<std::mutex> lock(indexMutex);
+            if (!libretroIndexLoaded) {
+                fetchLibretroIndex();
+            }
         }
         
-        std::string matched = StringMatcher::findBestMatch(task.romName, libretroNames);
+        std::string matched;
+        {
+            std::lock_guard<std::mutex> lock(indexMutex);
+            matched = StringMatcher::findBestMatch(task.romName, libretroNames);
+        }
+
         if (!matched.empty()) {
-            printf("BoxartManager: Disk miss for '%s'. Syncing to disk...\n", task.romName.c_str());
             if (downloadBoxart(task.romName, matched)) {
                 exists = true;
             }
         }
-    } else if (task.isDownload) {
-        printf("BoxartManager: Disk hit for '%s' (Sync only).\n", task.romName.c_str());
     }
     
     BoxartResult result;
@@ -184,16 +198,10 @@ void BoxartManager::processTask(const BoxartTask& task) {
     
     // Only load and process surfaces if this is a display request
     if (exists && !task.isDownload) {
-        printf("BoxartManager: Processing '%s' for display.\n", task.romName.c_str());
         SDL_Surface* surface = loadImageSurface(localPath);
         if (surface) {
-            cropToAspectRatio(surface, BOXART_ASPECT_RATIO);
+            cropAndScale(surface, 256, 178); // Optimized size
             result.surface = surface;
-            
-            for (int i = 0; i < 4; i++) {
-                result.blurred[i] = applyBoxBlur(surface, i + 1);
-            }
-            result.reflection = createReflectionSurface(surface);
             result.success = true;
         }
     } else if (exists && task.isDownload) {
@@ -221,27 +229,12 @@ void BoxartManager::pollResults() {
             
             if (res.success && res.isDisplay && res.surface) {
                 entry.texture = SDL_CreateTextureFromSurface(renderer, res.surface);
-                SDL_SetTextureBlendMode(entry.texture, SDL_BLENDMODE_BLEND);
-                
-                for (int i = 0; i < 4; i++) {
-                    if (res.blurred[i]) {
-                        entry.blurred[i] = SDL_CreateTextureFromSurface(renderer, res.blurred[i]);
-                        SDL_SetTextureBlendMode(entry.blurred[i], SDL_BLENDMODE_BLEND);
-                        SDL_FreeSurface(res.blurred[i]);
-                    }
-                }
-                
-                if (res.reflection) {
-                    entry.reflection = SDL_CreateTextureFromSurface(renderer, res.reflection);
-                    SDL_SetTextureBlendMode(entry.reflection, SDL_BLENDMODE_BLEND);
-                    SDL_FreeSurface(res.reflection);
-                }
+                // No more NONE blend mode, let's keep it standard for now but optimized pixel format
                 
                 entry.loaded = true;
                 entry.localPath = getLocalPath(res.romName);
                 
                 SDL_FreeSurface(res.surface);
-                printf("BoxartManager: Display load complete for '%s'.\n", res.romName.c_str());
             } else if (res.success && !res.isDisplay) {
                 // Sync only, don't mark as loaded, just clear queued flag
                 // printf("BoxartManager: Sync complete for '%s'.\n", res.romName.c_str());
@@ -251,14 +244,14 @@ void BoxartManager::pollResults() {
         } else {
             // Clean up if the entry was removed from cache while processing
             if (res.surface) SDL_FreeSurface(res.surface);
-            for (int i = 0; i < 4; i++) if (res.blurred[i]) SDL_FreeSurface(res.blurred[i]);
-            if (res.reflection) SDL_FreeSurface(res.reflection);
         }
     }
 }
 
 void BoxartManager::fetchLibretroIndex() {
     if (libretroIndexLoaded) return;
+    
+    // Note: Caller must hold indexMutex
     printf("BoxartManager: Scraping Libretro index for boxarts...\n");
     CURL* curl = curl_easy_init();
     if (!curl) return;
@@ -327,79 +320,37 @@ bool BoxartManager::downloadBoxart(const std::string& romName, const std::string
 SDL_Surface* BoxartManager::loadImageSurface(const std::string& path) {
     SDL_Surface* surface = IMG_Load(path.c_str());
     if (!surface) return nullptr;
-    SDL_Surface* converted = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_RGBA8888, 0);
+    // Optimized pixel format for RPi Zero
+    SDL_Surface* converted = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_RGB565, 0);
     SDL_FreeSurface(surface);
     return converted;
 }
 
-void BoxartManager::cropToAspectRatio(SDL_Surface*& surface, float targetRatio) {
+void BoxartManager::cropAndScale(SDL_Surface*& surface, int targetW, int targetH) {
     if (!surface) return;
+    
+    float targetRatio = (float)targetW / (float)targetH;
     float currentRatio = (float)surface->w / (float)surface->h;
-    int newW, newH, srcX = 0, srcY = 0;
+    
+    int srcX = 0, srcY = 0, srcW = surface->w, srcH = surface->h;
+    
     if (currentRatio > targetRatio) {
-        newH = surface->h;
-        newW = (int)(newH * targetRatio);
-        srcX = (surface->w - newW) / 2;
+        srcW = (int)(surface->h * targetRatio);
+        srcX = (surface->w - srcW) / 2;
     } else {
-        newW = surface->w;
-        newH = (int)(newW / targetRatio);
-        srcY = (surface->h - newH) / 2;
+        srcH = (int)(surface->w / targetRatio);
+        srcY = (surface->h - srcH) / 2;
     }
-    SDL_Surface* cropped = SDL_CreateRGBSurfaceWithFormat(0, newW, newH, 32, SDL_PIXELFORMAT_RGBA8888);
-    if (!cropped) return;
-    SDL_Rect srcRect = {srcX, srcY, newW, newH};
-    SDL_BlitSurface(surface, &srcRect, cropped, nullptr);
+    
+    SDL_Surface* optimized = SDL_CreateRGBSurfaceWithFormat(0, targetW, targetH, 16, SDL_PIXELFORMAT_RGB565);
+    if (!optimized) return;
+    
+    SDL_Rect srcRect = {srcX, srcY, srcW, srcH};
+    SDL_Rect dstRect = {0, 0, targetW, targetH};
+    
+    SDL_BlitScaled(surface, &srcRect, optimized, &dstRect);
     SDL_FreeSurface(surface);
-    surface = cropped;
-}
-
-SDL_Surface* BoxartManager::applyBoxBlur(SDL_Surface* src, int radius) {
-    if (!src || radius <= 0) return nullptr;
-    SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 32, SDL_PIXELFORMAT_RGBA8888);
-    if (!dst) return nullptr;
-    Uint32* srcPixels = (Uint32*)src->pixels;
-    Uint32* dstPixels = (Uint32*)dst->pixels;
-    int w = src->w;
-    int h = src->h;
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            int r = 0, g = 0, b = 0, a = 0, count = 0;
-            for (int ky = -radius; ky <= radius; ky++) {
-                for (int kx = -radius; kx <= radius; kx++) {
-                    int px = std::max(0, std::min(w - 1, x + kx));
-                    int py = std::max(0, std::min(h - 1, y + ky));
-                    Uint32 pixel = srcPixels[py * w + px];
-                    r += (pixel >> 24) & 0xFF;
-                    g += (pixel >> 16) & 0xFF;
-                    b += (pixel >> 8) & 0xFF;
-                    a += pixel & 0xFF;
-                    count++;
-                }
-            }
-            dstPixels[y * w + x] = ((r/count) << 24) | ((g/count) << 16) | ((b/count) << 8) | (a/count);
-        }
-    }
-    return dst;
-}
-
-SDL_Surface* BoxartManager::createReflectionSurface(SDL_Surface* original) {
-    if (!original) return nullptr;
-    SDL_Surface* reflection = SDL_CreateRGBSurfaceWithFormat(0, original->w, original->h, 32, SDL_PIXELFORMAT_RGBA8888);
-    if (!reflection) return nullptr;
-    SDL_BlitSurface(original, nullptr, reflection, nullptr);
-    
-    Uint32* pixels = (Uint32*)reflection->pixels;
-    for (int y = 0; y < reflection->h; y++) {
-        float f = (float)y / (float)reflection->h;
-        Uint8 alpha = (Uint8)(f * f * 150);
-        for (int x = 0; x < reflection->w; x++) {
-            pixels[y * reflection->w + x] = (pixels[y * reflection->w + x] & 0xFFFFFF00) | alpha;
-        }
-    }
-    
-    SDL_Surface* blurred = applyBoxBlur(reflection, 1);
-    SDL_FreeSurface(reflection);
-    return blurred;
+    surface = optimized;
 }
 
 SDL_Texture* BoxartManager::createPlaceholderTexture(const std::string& name) {
@@ -414,13 +365,9 @@ SDL_Texture* BoxartManager::createPlaceholderTexture(const std::string& name) {
 SDL_Texture* BoxartManager::getTexture(const std::string& romName, int blurLevel) {
     auto it = cache.find(romName);
     if (it == cache.end() || !it->second.loaded) return placeholderTexture;
-    if (blurLevel <= 0) return it->second.texture;
-    int idx = std::min(blurLevel - 1, 3);
-    return it->second.blurred[idx] ? it->second.blurred[idx] : it->second.texture;
+    return it->second.texture;
 }
 
 SDL_Texture* BoxartManager::getReflectionTexture(const std::string& romName) {
-    auto it = cache.find(romName);
-    if (it == cache.end() || !it->second.loaded) return nullptr;
-    return it->second.reflection;
+    return nullptr;
 }
