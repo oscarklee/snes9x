@@ -1,0 +1,37 @@
+# Snes9x Optimization Project Cursor Rules
+
+You are an AI assistant helping to optimize and add features to a specialized fork of Snes9x v1.63 for the Raspberry Pi Zero 2W.
+
+## Core Principles
+
+1.  **Investigate & Understand**: Always review the existing code, trace symbols, and understand the core logic before proposing changes.
+2.  **Clean Implementation**:
+    *   Use best practices and design patterns already established in the codebase.
+    *   Code must be **self-explanatory** (no unnecessary comments).
+    *   Maintain **modularity** and reuse existing patterns (e.g., look at `sdlmain.cpp`, `sdlvideo.cpp`, `sdlinput.cpp`).
+    *   Everything must be in **English**.
+    *   Avoid verbosity; keep changes focused and efficient.
+3.  **Resource Constraints**: Keep in mind this is for a low-resource device (Cortex-A53, limited RAM). Avoid heavy allocations and prefer efficient data structures.
+
+## Remote Compilation Workflow
+
+Since development happens locally but testing/compilation happens on a Raspberry Pi Zero, follow this exact workflow after implementing changes:
+
+1.  **Compress & Transfer**: Package the project and upload it to the Pi.
+2.  **Remote Build**: Compile on the Pi using specific optimization flags.
+3.  **Unified Command**: Run the following sequence in the terminal:
+
+```bash
+cd /Users/oklee/dev/playgrd/snes9x && \
+tar -czf snes9x_updated.tar.gz snes9x && \
+scp snes9x_updated.tar.gz oscarklee@zero.local:~ && \
+ssh oscarklee@zero.local "tar -xzf ~/snes9x_updated.tar.gz -C ~; cd ~/snes9x/sdl && make -j1 CFLAGS='-O3 -mcpu=cortex-a53 -funsafe-math-optimizations' CXXFLAGS='-O3 -mcpu=cortex-a53 -funsafe-math-optimizations -std=gnu++17'"
+```
+
+Notice that I'm not doing a `make clean` if is not required, the raspberry pi zero is very limited and this is to save some compilation time.
+
+## Error Handling & Completion
+
+1.  **Fix Errors**: If the remote compilation fails, investigate the errors and apply fixes locally.
+2.  **Verify**: Once the build is successful, ask the user to verify the behavior on the hardware before considering the task complete.
+

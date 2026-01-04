@@ -52,6 +52,7 @@
 #include "gfx.h"
 
 #include "sdl_snes9x.h"
+#include "menu/MenuCarousel.h"
 
 typedef struct
 {
@@ -375,41 +376,36 @@ void S9xSetPalette (void)
 	return;
 }
 
+SDL_Renderer* S9xGetRenderer(void)
+{
+    return GUI.sdlRenderer;
+}
+
 void S9xMenuDraw (void)
 {
-    uint16 blue = BUILD_PIXEL(0, 0, 16);
-    for (uint32 y = 0; y < SNES_HEIGHT_EXTENDED; y++)
-    {
-        uint16 *ptr = GFX.Screen + y * GFX.RealPPL;
-        for (uint32 x = 0; x < SNES_WIDTH; x++)
-            *ptr++ = blue;
+    if (g_carousel) {
+        g_carousel->render();
+    } else {
+        uint16 blue = BUILD_PIXEL(0, 0, 16);
+        for (uint32 y = 0; y < SNES_HEIGHT_EXTENDED; y++)
+        {
+            uint16 *ptr = GFX.Screen + y * GFX.RealPPL;
+            for (uint32 x = 0; x < SNES_WIDTH; x++)
+                *ptr++ = blue;
+        }
+
+        uint16 white = BUILD_PIXEL(31, 31, 31);
+        uint16 red = BUILD_PIXEL(31, 0, 0);
+
+        Settings.DisplayColor = white;
+        S9xVariableDisplayString("Snes9x - Loading Menu...", 22, 10, false, S9X_NO_INFO);
+
+        if (g_rom_list.empty())
+        {
+            Settings.DisplayColor = red;
+            S9xVariableDisplayString("No ROMs found in ~/roms", 18, 10, false, S9X_NO_INFO);
+        }
+
+        S9xPutImage(SNES_WIDTH, SNES_HEIGHT_EXTENDED);
     }
-
-    uint16 white = BUILD_PIXEL(31, 31, 31);
-    uint16 yellow = BUILD_PIXEL(31, 31, 0);
-    uint16 red = BUILD_PIXEL(31, 0, 0);
-
-    Settings.DisplayColor = white;
-    S9xVariableDisplayString("Snes9x - Select a ROM", 22, 10, false, S9X_NO_INFO);
-    S9xVariableDisplayString("---------------------", 21, 10, false, S9X_NO_INFO);
-
-    int start = 0;
-    if (g_menu_selection > 18) start = g_menu_selection - 18;
-
-    for (int i = start; i < (int)g_rom_list.size() && i < start + 20; i++)
-    {
-        Settings.DisplayColor = (i == g_menu_selection) ? yellow : white;
-        char label[128];
-        const char *prefix = (i == g_menu_selection) ? "> " : "  ";
-        snprintf(label, sizeof(label), "%s%s", prefix, g_rom_list[i].c_str());
-        S9xVariableDisplayString(label, 19 - (i - start), 10, false, S9X_NO_INFO);
-    }
-
-    if (g_rom_list.empty())
-    {
-        Settings.DisplayColor = red;
-        S9xVariableDisplayString("No ROMs found in ~/roms", 18, 10, false, S9X_NO_INFO);
-    }
-
-    S9xPutImage(SNES_WIDTH, SNES_HEIGHT_EXTENDED);
 }

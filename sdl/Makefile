@@ -6,7 +6,7 @@ S9XJMA=1
 OS         = `uname -s -r -m|sed \"s/ /-/g\"|tr \"[A-Z]\" \"[a-z]\"|tr \"/()\" \"___\"`
 BUILDDIR   = .
 
-OBJECTS    = ../apu/apu.o ../apu/bapu/dsp/sdsp.o ../apu/bapu/smp/smp.o ../apu/bapu/smp/smp_state.o ../bsx.o ../c4.o ../c4emu.o ../cheats.o ../cheats2.o ../clip.o ../conffile.o ../controls.o ../cpu.o ../cpuexec.o ../cpuops.o ../crosshairs.o ../dma.o ../dsp.o ../dsp1.o ../dsp2.o ../dsp3.o ../dsp4.o ../fxinst.o ../fxemu.o ../gfx.o ../globals.o ../memmap.o ../msu1.o ../movie.o ../obc1.o ../ppu.o ../stream.o ../sa1.o ../sa1cpu.o ../screenshot.o ../sdd1.o ../sdd1emu.o ../seta.o ../seta010.o ../seta011.o ../seta018.o ../snapshot.o ../snes9x.o ../spc7110.o ../srtc.o ../tile.o ../tileimpl-n1x1.o ../tileimpl-n2x1.o ../tileimpl-h2x1.o ../filter/2xsai.o ../filter/blit.o ../filter/epx.o ../filter/hq2x.o ../filter/snes_ntsc.o ../statemanager.o ../sha256.o ../bml.o ../fscompat.o ../common/audio/s9x_sound_driver_sdl.o logger.o sdlmain.o sdlvideo.o sdlinput.o
+OBJECTS    = ../apu/apu.o ../apu/bapu/dsp/sdsp.o ../apu/bapu/smp/smp.o ../apu/bapu/smp/smp_state.o ../bsx.o ../c4.o ../c4emu.o ../cheats.o ../cheats2.o ../clip.o ../conffile.o ../controls.o ../cpu.o ../cpuexec.o ../cpuops.o ../crosshairs.o ../dma.o ../dsp.o ../dsp1.o ../dsp2.o ../dsp3.o ../dsp4.o ../fxinst.o ../fxemu.o ../gfx.o ../globals.o ../memmap.o ../msu1.o ../movie.o ../obc1.o ../ppu.o ../stream.o ../sa1.o ../sa1cpu.o ../screenshot.o ../sdd1.o ../sdd1emu.o ../seta.o ../seta010.o ../seta011.o ../seta018.o ../snapshot.o ../snes9x.o ../spc7110.o ../srtc.o ../tile.o ../tileimpl-n1x1.o ../tileimpl-n2x1.o ../tileimpl-h2x1.o ../filter/2xsai.o ../filter/blit.o ../filter/epx.o ../filter/hq2x.o ../filter/snes_ntsc.o ../statemanager.o ../sha256.o ../bml.o ../fscompat.o ../common/audio/s9x_sound_driver_sdl.o logger.o sdlmain.o sdlvideo.o sdlinput.o menu/MenuCarousel.o menu/BoxartManager.o menu/StringMatcher.o
 DEFS       = 
 
 ifdef S9XDEBUGGER
@@ -25,7 +25,7 @@ endif
 CCC        = g++
 CC         = gcc
 GASM       = g++
-INCLUDES   += -I. -I.. -I../apu/ -I../apu/bapu -I../jma/ -I../filter/ `pkg-config --cflags sdl2 zlib libpng`
+INCLUDES   += -I. -I.. -I../apu/ -I../apu/bapu -I../jma/ -I../filter/ -Imenu/ `pkg-config --cflags sdl2 SDL2_image zlib libpng libcurl`
 
 # Optimization flags for Raspberry Pi Zero (ARMv8 / AArch64)
 # CCFLAGS    = -O3 -mcpu=cortex-a53 -funsafe-math-optimizations -std=gnu++14
@@ -40,7 +40,10 @@ CFLAGS     = $(COMMON_FLAGS)
 all: snes9x
 
 snes9x: $(OBJECTS)
-	$(CCC) $(LDFLAGS) $(INCLUDES) -o $@ $(OBJECTS) -lm `pkg-config --libs sdl2 zlib libpng`
+	$(CCC) $(LDFLAGS) $(INCLUDES) -o $@ $(OBJECTS) -lm `pkg-config --libs sdl2 SDL2_image zlib libpng libcurl`
+
+menu/%.o: menu/%.cpp
+	$(CCC) $(INCLUDES) -c $(CCFLAGS) $< -o $@
 
 ../jma/s9x-jma.o: ../jma/s9x-jma.cpp
 	$(CCC) $(INCLUDES) -c $(CCFLAGS) -fexceptions $*.cpp -o $@
@@ -111,5 +114,5 @@ snes9x: $(OBJECTS)
 	cp $*.obj $*.o
 
 clean:
-	rm -f $(OBJECTS) snes9x
+	rm -f $(OBJECTS) snes9x menu/*.o
 

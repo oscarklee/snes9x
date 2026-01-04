@@ -1,0 +1,98 @@
+#ifndef BOXART_MANAGER_H
+#define BOXART_MANAGER_H
+
+#include <SDL2/SDL.h>
+#include <string>
+#include <map>
+#include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <deque>
+
+struct BoxartEntry {
+    SDL_Texture* texture;
+    SDL_Texture* blurred[4];
+    SDL_Texture* reflection;
+    std::string localPath;
+    bool loaded;
+    
+    BoxartEntry() : texture(nullptr), reflection(nullptr), loaded(false) {
+        for (int i = 0; i < 4; i++) blurred[i] = nullptr;
+    }
+    
+    void destroy() {
+        if (texture) { SDL_DestroyTexture(texture); texture = nullptr; }
+        for (int i = 0; i < 4; i++) {
+            if (blurred[i]) { SDL_DestroyTexture(blurred[i]); blurred[i] = nullptr; }
+        }
+        if (reflection) { SDL_DestroyTexture(reflection); reflection = nullptr; }
+        loaded = false;
+    }
+};
+
+struct BoxartTask {
+    std::string romName;
+    std::string displayName;
+    bool isDownload;
+};
+
+struct BoxartResult {
+    std::string romName;
+    SDL_Surface* surface;
+    SDL_Surface* blurred[4];
+    SDL_Surface* reflection;
+    bool success;
+    
+    BoxartResult() : surface(nullptr), reflection(nullptr), success(false) {
+        for (int i = 0; i < 4; i++) blurred[i] = nullptr;
+    }
+};
+
+class BoxartManager {
+public:
+    BoxartManager();
+    ~BoxartManager();
+    
+    void init(SDL_Renderer* renderer);
+    void shutdown();
+    
+    void requestBoxart(const std::string& romName, const std::string& displayName);
+    void unloadBoxart(const std::string& romName);
+    void pollResults();
+    
+    SDL_Texture* getTexture(const std::string& romName, int blurLevel = 0);
+    SDL_Texture* getReflectionTexture(const std::string& romName);
+    
+    void fetchLibretroIndex();
+    std::string getBoxartDir() const { return boxartDir; }
+    
+private:
+    SDL_Renderer* renderer;
+    std::string boxartDir;
+    std::map<std::string, BoxartEntry> cache;
+    std::vector<std::string> libretroNames;
+    SDL_Texture* placeholderTexture;
+    
+    std::thread workerThread;
+    std::mutex queueMutex;
+    std::condition_variable condition;
+    std::deque<BoxartTask> taskQueue;
+    std::deque<BoxartResult> resultQueue;
+    bool stopWorker;
+    bool libretroIndexLoaded;
+
+    void workerFunc();
+    void processTask(const BoxartTask& task);
+    
+    bool downloadBoxart(const std::string& romName, const std::string& matchedName);
+    void ensureDirectoryExists();
+    std::string getLocalPath(const std::string& romName);
+    SDL_Surface* loadImageSurface(const std::string& path);
+    SDL_Surface* applyBoxBlur(SDL_Surface* src, int radius);
+    SDL_Surface* createReflectionSurface(SDL_Surface* original);
+    SDL_Texture* createPlaceholderTexture(const std::string& name);
+    void cropToAspectRatio(SDL_Surface*& surface, float targetRatio);
+};
+
+#endif

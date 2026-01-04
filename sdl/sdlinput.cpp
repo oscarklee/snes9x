@@ -397,7 +397,22 @@ void S9xProcessEvents (bool8 block)
 			if (event.key.keysym.sym == SDLK_q)
 			{
 				quit_state = TRUE;
-			} 
+			}
+			else if (g_state == STATE_MENU && event.type == SDL_KEYDOWN)
+			{
+				if (event.key.keysym.sym == SDLK_LEFT)
+				{
+					S9xMenuMoveLeft();
+				}
+				else if (event.key.keysym.sym == SDLK_RIGHT)
+				{
+					S9xMenuMoveRight();
+				}
+				else if (event.key.keysym.sym == SDLK_RETURN || event.key.keysym.sym == SDLK_SPACE)
+				{
+					S9xMenuLoadSelected();
+				}
+			}
 			else
 			{
 				S9xReportButton(event.key.keysym.mod << 16 | // keyboard mod
@@ -452,15 +467,15 @@ void S9xProcessEvents (bool8 block)
 
                 if (g_state == STATE_MENU)
                 {
-                    if (event.jbutton.button == 13) // Up
+                    if (event.jbutton.button == 15) // D-Pad Left
                     {
-                        if (g_menu_selection > 0) g_menu_selection--;
+                        S9xMenuMoveLeft();
                     }
-                    else if (event.jbutton.button == 14) // Down
+                    else if (event.jbutton.button == 16) // D-Pad Right
                     {
-                        if (g_menu_selection < (int)g_rom_list.size() - 1) g_menu_selection++;
+                        S9xMenuMoveRight();
                     }
-                    else if (event.jbutton.button <= 3) // Select
+                    else if (event.jbutton.button <= 3) // A/B/X/Y to select
                     {
                         S9xMenuLoadSelected();
                     }

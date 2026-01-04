@@ -47,6 +47,7 @@
 #include <sys/types.h>
 
 #include "sdl_snes9x.h"
+#include "menu/MenuCarousel.h"
 
 #include "snes9x.h"
 #include "memmap.h"
@@ -82,6 +83,8 @@ static std::string	record_smv_filename;
 int g_state = STATE_MENU;
 std::vector<std::string> g_rom_list;
 int g_menu_selection = 0;
+MenuCarousel* g_carousel = nullptr;
+static Uint32 g_last_menu_time = 0;
 
 S9xSDLSoundDriver *SoundDriver = nullptr;
 uint32           sound_buffer_size; // used in sdlaudio
@@ -752,6 +755,7 @@ bool8 S9xLoadROM (const char *filename)
 
 void S9xMenuInit (void)
 {
+    printf("S9xMenuInit: Starting menu initialization...\n");
     if (g_state == STATE_GAME)
     {
         Settings.StopEmulation = TRUE;
@@ -759,38 +763,56 @@ void S9xMenuInit (void)
         Memory.Deinit();
     }
 
-    g_rom_list.clear();
     std::string rom_dir = std::string(getenv("HOME")) + SLASH_STR + "roms";
-    DIR *dir = opendir(rom_dir.c_str());
-    if (dir)
-    {
-        struct dirent *ent;
-        while ((ent = readdir(dir)) != NULL)
-        {
-            std::string name = ent->d_name;
-            if (name.size() > 4)
-            {
-                std::string ext = name.substr(name.size() - 4);
-                if (ext == ".sfc" || ext == ".zip")
-                {
-                    g_rom_list.push_back(name);
-                }
-            }
+    
+    if (!g_carousel) {
+        printf("S9xMenuInit: Creating new MenuCarousel...\n");
+        g_carousel = new MenuCarousel();
+        SDL_Renderer* renderer = S9xGetRenderer();
+        if (renderer) {
+            printf("S9xMenuInit: Renderer found, initializing carousel...\n");
+            int w, h;
+            SDL_GetRendererOutputSize(renderer, &w, &h);
+            g_carousel->init(renderer, w, h);
+        } else {
+            printf("S9xMenuInit: WARNING - No renderer found during carousel creation!\n");
         }
-        closedir(dir);
     }
-    g_menu_selection = 0;
+    
+    printf("S9xMenuInit: Scanning ROM directory: %s\n", rom_dir.c_str());
+    g_carousel->scanRomDirectory(rom_dir);
+    g_last_menu_time = SDL_GetTicks();
     g_state = STATE_MENU;
     S9xSetTitle("Snes9x - ROM Selection");
+    printf("S9xMenuInit: Menu initialized successfully.\n");
+}
+
+void S9xMenuUpdate(float deltaTime)
+{
+    if (g_carousel) {
+        g_carousel->update(deltaTime);
+    }
+}
+
+void S9xMenuMoveLeft(void)
+{
+    if (g_carousel) {
+        g_carousel->moveLeft();
+    }
+}
+
+void S9xMenuMoveRight(void)
+{
+    if (g_carousel) {
+        g_carousel->moveRight();
+    }
 }
 
 void S9xMenuLoadSelected (void)
 {
-    if (g_menu_selection >= 0 && g_menu_selection < (int)g_rom_list.size())
-    {
-        std::string rom_path = std::string(getenv("HOME")) + SLASH_STR + "roms" + SLASH_STR + g_rom_list[g_menu_selection];
-        if (S9xLoadROM(rom_path.c_str()))
-        {
+    if (g_carousel && g_carousel->hasRoms()) {
+        std::string rom_path = g_carousel->getSelectedRomPath();
+        if (!rom_path.empty() && S9xLoadROM(rom_path.c_str())) {
             g_state = STATE_GAME;
         }
     }
@@ -905,29 +927,15 @@ int main (int argc, char **argv)
         loaded = S9xLoadROM(rom_filename.c_str());
 	}
 
-	if (!loaded && !Settings.Multi)
-	{
-		S9xMenuInit();
-	}
-
-	CPU.Flags = saved_flags;
-	Settings.StopEmulation = FALSE;
-
-#ifdef DEBUGGER
-	struct sigaction sa;
-	sa.sa_handler = sigbrkhandler;
-#ifdef SA_RESTART
-	sa.sa_flags = SA_RESTART;
-#else
-	sa.sa_flags = 0;
-#endif
-	sigemptyset(&sa.sa_mask);
-	sigaction(SIGINT, &sa, NULL);
-#endif
-
 	S9xInitInputDevices();
 	S9xInitDisplay(argc, argv);
 	S9xSetupDefaultKeymap();
+
+    // Move MenuInit after InitDisplay to ensure renderer is available
+    if (!loaded && !Settings.Multi)
+    {
+        S9xMenuInit();
+    }
 
 #ifdef NETPLAY_SUPPORT
 	if (strlen(Settings.ServerName) == 0)
@@ -1000,6 +1008,13 @@ int main (int argc, char **argv)
 	{
         if (g_state == STATE_MENU)
         {
+            Uint32 currentTime = SDL_GetTicks();
+            float deltaTime = (currentTime - g_last_menu_time) / 1000.0f;
+            g_last_menu_time = currentTime;
+            
+            if (deltaTime > 0.1f) deltaTime = 0.1f;
+            
+            S9xMenuUpdate(deltaTime);
             S9xMenuDraw();
             S9xProcessEvents(FALSE);
             SDL_Delay(16);
