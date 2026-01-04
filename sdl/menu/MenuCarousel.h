@@ -60,6 +60,15 @@ private:
     SDL_Texture* backgroundGradient;
     SDL_Texture* reflectionOverlay;
 
+    // Title animation
+    std::string currentTitle;
+    float titleAlpha; // 0.0 to 1.0
+
+    // Configurable visual parameters
+    float reflectionOpacity;  // Base transparency for reflections (0.0 to 1.0)
+    int blurRadius;           // Radius for box blur on side cards and reflections
+    float minSideBrightness;  // Minimum brightness for far cards
+
     void createStaticTextures();
     int wrap(int min, int max, int value) const;
     

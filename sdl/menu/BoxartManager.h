@@ -50,6 +50,8 @@ public:
     void init(SDL_Renderer* renderer);
     void shutdown();
     
+    void setBlurRadius(int radius) { blurRadius = radius; }
+    
     void requestBoxart(const std::string& romName, const std::string& displayName, bool priority = false, bool isSyncOnly = false);
     void unloadBoxart(const std::string& romName);
     void pollResults();
@@ -68,6 +70,7 @@ private:
     std::mutex indexMutex; // Mutex for libretroNames
     SDL_Texture* placeholderTexture;
     
+    int blurRadius;
     std::vector<std::thread> workerThreads;
     std::mutex queueMutex;
     std::condition_variable condition;

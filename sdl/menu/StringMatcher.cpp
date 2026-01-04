@@ -13,28 +13,34 @@ int StringMatcher::damerauLevenshteinDistance(const std::string& s1, const std::
     if (len1 == 0) return len2;
     if (len2 == 0) return len1;
     
-    std::vector<std::vector<int>> d(len1 + 1, std::vector<int>(len2 + 1));
+    // Optimization: Use a heap allocation to avoid stack overflow
+    static const int MAX_LEN = 256;
+    if (len1 >= MAX_LEN || len2 >= MAX_LEN) return 999;
+
+    std::vector<int> d((len1 + 1) * (len2 + 1));
+    auto getD = [&](size_t i, size_t j) -> int& { return d[i * (len2 + 1) + j]; };
     
-    for (size_t i = 0; i <= len1; i++) d[i][0] = i;
-    for (size_t j = 0; j <= len2; j++) d[0][j] = j;
+    for (size_t i = 0; i <= len1; i++) getD(i, 0) = i;
+    for (size_t j = 0; j <= len2; j++) getD(0, j) = j;
     
     for (size_t i = 1; i <= len1; i++) {
         for (size_t j = 1; j <= len2; j++) {
             int cost = (s1[i-1] == s2[j-1]) ? 0 : 1;
             
-            d[i][j] = std::min({
-                d[i-1][j] + 1,
-                d[i][j-1] + 1,
-                d[i-1][j-1] + cost
-            });
+            int del = getD(i-1, j) + 1;
+            int ins = getD(i, j-1) + 1;
+            int sub = getD(i-1, j-1) + cost;
+            
+            int res = std::min({del, ins, sub});
             
             if (i > 1 && j > 1 && s1[i-1] == s2[j-2] && s1[i-2] == s2[j-1]) {
-                d[i][j] = std::min(d[i][j], d[i-2][j-2] + cost);
+                res = std::min(res, getD(i-2, j-2) + cost);
             }
+            getD(i, j) = res;
         }
     }
     
-    return d[len1][len2];
+    return getD(len1, len2);
 }
 
 std::string StringMatcher::removeExtension(const std::string& filename) {
@@ -56,15 +62,18 @@ std::string StringMatcher::removeExtension(const std::string& filename) {
 }
 
 std::string StringMatcher::removeRegionCodes(const std::string& name) {
-    std::string result = name;
+    std::string result = "";
+    int parenLevel = 0;
+    int bracketLevel = 0;
     
-    std::vector<std::regex> patterns = {
-        std::regex("\\s*\\([^)]*\\)\\s*"),
-        std::regex("\\s*\\[[^\\]]*\\]\\s*")
-    };
-    
-    for (const auto& pattern : patterns) {
-        result = std::regex_replace(result, pattern, " ");
+    for (char c : name) {
+        if (c == '(') parenLevel++;
+        else if (c == ')') parenLevel--;
+        else if (c == '[') bracketLevel++;
+        else if (c == ']') bracketLevel--;
+        else if (parenLevel == 0 && bracketLevel == 0) {
+            result += c;
+        }
     }
     
     return result;

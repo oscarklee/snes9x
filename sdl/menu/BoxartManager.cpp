@@ -25,7 +25,7 @@ static size_t stringWriteCallback(void* ptr, size_t size, size_t nmemb, void* us
 }
 
 BoxartManager::BoxartManager() 
-    : renderer(nullptr), placeholderTexture(nullptr), stopWorker(false), libretroIndexLoaded(false) {
+    : renderer(nullptr), placeholderTexture(nullptr), blurRadius(2), stopWorker(false), libretroIndexLoaded(false) {
     const char* home = getenv("HOME");
     if (home) {
         boxartDir = std::string(home) + "/.snes9x/boxart";
@@ -42,7 +42,7 @@ void BoxartManager::init(SDL_Renderer* r) {
     IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
     
     stopWorker = false;
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 1; i++) {
         workerThreads.emplace_back(&BoxartManager::workerFunc, this);
     }
     
@@ -203,10 +203,14 @@ void BoxartManager::processTask(const BoxartTask& task) {
             cropAndScale(surface, 256, 178); // Optimized size
             result.surface = surface;
             
-            // Generate a single blurred version for side cards
-            result.blurred = applyBoxBlur(surface, 2);
+            // Generate a single blurred version for side cards using configurable radius
+            result.blurred = applyBoxBlur(surface, blurRadius);
             
             result.success = true;
+        } else {
+            // If loading failed (e.g. libpng error), delete the file so it can be re-downloaded
+            printf("BoxartManager: CORRUPTION DETECTED in '%s'. Deleting for re-download.\n", localPath.c_str());
+            remove(localPath.c_str());
         }
     } else if (exists && task.isDownload) {
         result.success = true; // Sync success
@@ -222,6 +226,7 @@ void BoxartManager::pollResults() {
     std::deque<BoxartResult> results;
     {
         std::lock_guard<std::mutex> lock(queueMutex);
+        if (resultQueue.empty()) return;
         results = std::move(resultQueue);
         resultQueue.clear();
     }
@@ -231,28 +236,35 @@ void BoxartManager::pollResults() {
             BoxartEntry& entry = cache[res.romName];
             entry.queued = false;
             
-            if (res.success && res.isDisplay && res.surface) {
-                entry.texture = SDL_CreateTextureFromSurface(renderer, res.surface);
+            if (res.success && res.isDisplay) {
+                if (res.surface) {
+                    entry.texture = SDL_CreateTextureFromSurface(renderer, res.surface);
+                    if (entry.texture) {
+                        SDL_SetTextureBlendMode(entry.texture, SDL_BLENDMODE_BLEND);
+                        entry.loaded = true;
+                        entry.localPath = getLocalPath(res.romName);
+                    }
+                }
                 
                 if (res.blurred) {
                     entry.blurred = SDL_CreateTextureFromSurface(renderer, res.blurred);
-                    SDL_FreeSurface(res.blurred);
+                    if (entry.blurred) {
+                        SDL_SetTextureBlendMode(entry.blurred, SDL_BLENDMODE_BLEND);
+                    }
                 }
-                
-                entry.loaded = true;
-                entry.localPath = getLocalPath(res.romName);
-                
-                SDL_FreeSurface(res.surface);
-            } else if (res.success && !res.isDisplay) {
-                // Sync only, don't mark as loaded, just clear queued flag
-                // printf("BoxartManager: Sync complete for '%s'.\n", res.romName.c_str());
-            } else {
-                if (res.isDisplay) printf("BoxartManager: Display load failed for '%s'.\n", res.romName.c_str());
+            } else if (res.isDisplay) {
+                printf("BoxartManager: Load failed for '%s'\n", res.romName.c_str());
             }
-        } else {
-            // Clean up if the entry was removed from cache while processing
-            if (res.surface) SDL_FreeSurface(res.surface);
-            if (res.blurred) SDL_FreeSurface(res.blurred);
+        }
+        
+        // Safety: Always free surfaces if they were allocated
+        if (res.surface) {
+            SDL_FreeSurface(res.surface);
+            res.surface = nullptr;
+        }
+        if (res.blurred) {
+            SDL_FreeSurface(res.blurred);
+            res.blurred = nullptr;
         }
     }
 }
@@ -364,37 +376,49 @@ void BoxartManager::cropAndScale(SDL_Surface*& surface, int targetW, int targetH
 
 SDL_Surface* BoxartManager::applyBoxBlur(SDL_Surface* src, int radius) {
     if (!src || radius <= 0) return nullptr;
+    
+    // Ensure we are working with RGB565 as expected
     SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 16, SDL_PIXELFORMAT_RGB565);
     if (!dst) return nullptr;
-    Uint16* srcPixels = (Uint16*)src->pixels;
-    Uint16* dstPixels = (Uint16*)dst->pixels;
+
     int w = src->w;
     int h = src->h;
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            int r = 0, g = 0, b = 0, count = 0;
-            for (int ky = -radius; ky <= radius; ky++) {
-                for (int kx = -radius; kx <= radius; kx++) {
-                    int px = std::max(0, std::min(w - 1, x + kx));
-                    int py = std::max(0, std::min(h - 1, y + ky));
-                    Uint16 pixel = srcPixels[py * w + px];
-                    r += (pixel >> 11) & 0x1F;
-                    g += (pixel >> 5) & 0x3F;
-                    b += pixel & 0x1F;
-                    count++;
+    int srcPitch = src->pitch / 2; // Uint16 is 2 bytes
+    int dstPitch = dst->pitch / 2;
+    Uint16* srcPixels = (Uint16*)src->pixels;
+            Uint16* dstPixels = (Uint16*)dst->pixels;
+
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    int r = 0, g = 0, b = 0, count = 0;
+                    for (int ky = -radius; ky <= radius; ky++) {
+                        int py = y + ky;
+                        if (py < 0 || py >= h) continue;
+                        for (int kx = -radius; kx <= radius; kx++) {
+                            int px = x + kx;
+                            if (px < 0 || px >= w) continue;
+                            
+                            Uint16 pixel = srcPixels[py * srcPitch + px];
+                            r += (pixel >> 11) & 0x1F;
+                            g += (pixel >> 5) & 0x3F;
+                            b += pixel & 0x1F;
+                            count++;
+                        }
+                    }
+                    if (count > 0) {
+                        dstPixels[y * dstPitch + x] = (Uint16)(((r / count) << 11) | ((g / count) << 5) | (b / count));
+                    }
                 }
             }
-            dstPixels[y * w + x] = ((r/count) << 11) | ((g/count) << 5) | (b/count);
+            return dst;
         }
-    }
-    return dst;
-}
 
 SDL_Texture* BoxartManager::createPlaceholderTexture(const std::string& name) {
     if (!renderer) return nullptr;
     SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, 512, 357, 32, SDL_PIXELFORMAT_RGBA8888);
     SDL_FillRect(s, nullptr, SDL_MapRGBA(s->format, 40, 40, 50, 255));
     SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, s);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
     SDL_FreeSurface(s);
     return tex;
 }

@@ -7,10 +7,13 @@ class SpringAnimation {
 public:
     float position;
     float target;
-    float speed;
+    float velocity;
+    float stiffness;
+    float damping;
     
-    SpringAnimation(float stiffness = 0, float damping = 0, float mass = 0)
-        : position(0.0f), target(0.0f), speed(15.0f) {}
+    SpringAnimation()
+        : position(0.0f), target(0.0f), velocity(0.0f), 
+          stiffness(120.0f), damping(14.0f) {}
     
     void setTarget(float newTarget) {
         target = newTarget;
@@ -18,15 +21,18 @@ public:
     
     void setPosition(float newPosition) {
         position = newPosition;
+        velocity = 0.0f;
     }
     
     void update(float dt) {
-        float diff = target - position;
-        if (std::abs(diff) < 0.0001f) {
+        // Simple spring physics: F = -k(x-target) - c*v
+        float force = -stiffness * (position - target) - damping * velocity;
+        velocity += force * dt;
+        position += velocity * dt;
+
+        if (std::abs(target - position) < 0.001f && std::abs(velocity) < 0.01f) {
             position = target;
-        } else {
-            // Smooth movement without bounce
-            position += diff * speed * dt;
+            velocity = 0.0f;
         }
     }
     
