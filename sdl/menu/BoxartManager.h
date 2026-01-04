@@ -16,8 +16,9 @@ struct BoxartEntry {
     SDL_Texture* reflection;
     std::string localPath;
     bool loaded;
+    bool queued;
     
-    BoxartEntry() : texture(nullptr), reflection(nullptr), loaded(false) {
+    BoxartEntry() : texture(nullptr), reflection(nullptr), loaded(false), queued(false) {
         for (int i = 0; i < 4; i++) blurred[i] = nullptr;
     }
     
@@ -57,7 +58,7 @@ public:
     void init(SDL_Renderer* renderer);
     void shutdown();
     
-    void requestBoxart(const std::string& romName, const std::string& displayName);
+    void requestBoxart(const std::string& romName, const std::string& displayName, bool priority = false);
     void unloadBoxart(const std::string& romName);
     void pollResults();
     

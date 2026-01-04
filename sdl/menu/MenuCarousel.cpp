@@ -84,6 +84,18 @@ void MenuCarousel::scanRomDirectory(const std::string& romDir) {
     activeIndex = 0;
     animation.setPosition(0.0f);
     animation.setTarget(0.0f);
+
+    // Initial bulk download in outside-in pattern
+    int n = (int)romList.size();
+    if (n > 0) {
+        printf("Menu: Starting bulk boxart sync for %d ROMs...\n", n);
+        for (int i = 0; i < (n + 1) / 2; i++) {
+            boxartManager.requestBoxart(romList[i].filename, romList[i].displayName, false);
+            if (i < n - 1 - i) {
+                boxartManager.requestBoxart(romList[n - 1 - i].filename, romList[n - 1 - i].displayName, false);
+            }
+        }
+    }
 }
 
 void MenuCarousel::loadVisibleBoxarts() {
@@ -100,7 +112,7 @@ void MenuCarousel::loadVisibleBoxarts() {
             int idx = wrap(0, (int)romList.size(), currentIdx + o);
             RomEntry& rom = romList[idx];
             if (!rom.boxartLoaded) {
-                boxartManager.requestBoxart(rom.filename, rom.displayName);
+                boxartManager.requestBoxart(rom.filename, rom.displayName, true);
             }
         }
     }

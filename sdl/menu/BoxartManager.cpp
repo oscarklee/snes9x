@@ -83,16 +83,37 @@ std::string BoxartManager::getLocalPath(const std::string& romName) {
     return boxartDir + "/" + romName + ".png";
 }
 
-void BoxartManager::requestBoxart(const std::string& romName, const std::string& displayName) {
-    if (cache.count(romName)) return;
+void BoxartManager::requestBoxart(const std::string& romName, const std::string& displayName, bool priority) {
+    if (cache.count(romName)) {
+        if (cache[romName].loaded || cache[romName].queued) {
+            // If already queued but now requested with priority, we move it to front
+            if (priority && cache[romName].queued) {
+                std::lock_guard<std::mutex> lock(queueMutex);
+                for (auto it = taskQueue.begin(); it != taskQueue.end(); ++it) {
+                    if (it->romName == romName) {
+                        BoxartTask task = *it;
+                        taskQueue.erase(it);
+                        taskQueue.push_front(task);
+                        break;
+                    }
+                }
+            }
+            return;
+        }
+    }
     
     BoxartEntry entry;
     entry.loaded = false;
+    entry.queued = true;
     cache[romName] = entry;
     
     {
         std::lock_guard<std::mutex> lock(queueMutex);
-        taskQueue.push_back({romName, displayName, false});
+        if (priority) {
+            taskQueue.push_front({romName, displayName, false});
+        } else {
+            taskQueue.push_back({romName, displayName, false});
+        }
     }
     condition.notify_one();
 }
@@ -183,8 +204,10 @@ void BoxartManager::pollResults() {
     
     for (auto& res : results) {
         if (cache.count(res.romName)) {
+            BoxartEntry& entry = cache[res.romName];
+            entry.queued = false;
+            
             if (res.success && res.surface) {
-                BoxartEntry& entry = cache[res.romName];
                 entry.texture = SDL_CreateTextureFromSurface(renderer, res.surface);
                 SDL_SetTextureBlendMode(entry.texture, SDL_BLENDMODE_BLEND);
                 
