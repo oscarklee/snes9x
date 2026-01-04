@@ -64,6 +64,7 @@ private:
     void renderCard(int offset, const RomEntry& rom, float animPos);
     void renderReflection(int x, int y, int w, int h, const std::string& romName, float opacity);
     void renderTitle(const std::string& title, int x, int y);
+    void renderText(const std::string& text, int x, int y, SDL_Color color, float scale = 1.0f);
     void renderNoRomsMessage();
 };
 

@@ -1,9 +1,14 @@
 #include "MenuCarousel.h"
 #include "StringMatcher.h"
+#include "../../var8x10font.h"
 #include <dirent.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
+
+static const int FONT_WIDTH = 8;
+static const int FONT_HEIGHT = 10;
 
 MenuCarousel::MenuCarousel() 
     : renderer(nullptr), screenWidth(0), screenHeight(0),
@@ -85,14 +90,14 @@ void MenuCarousel::scanRomDirectory(const std::string& romDir) {
     animation.setPosition(0.0f);
     animation.setTarget(0.0f);
 
-    // Initial bulk download in outside-in pattern
+    // Initial bulk download in outside-in pattern (Sync only, no memory load)
     int n = (int)romList.size();
     if (n > 0) {
-        printf("Menu: Starting bulk boxart sync for %d ROMs...\n", n);
+        printf("Menu: Starting bulk boxart sync (disk only) for %d ROMs...\n", n);
         for (int i = 0; i < (n + 1) / 2; i++) {
-            boxartManager.requestBoxart(romList[i].filename, romList[i].displayName, false);
+            boxartManager.requestBoxart(romList[i].filename, romList[i].displayName, false, true);
             if (i < n - 1 - i) {
-                boxartManager.requestBoxart(romList[n - 1 - i].filename, romList[n - 1 - i].displayName, false);
+                boxartManager.requestBoxart(romList[n - 1 - i].filename, romList[n - 1 - i].displayName, false, true);
             }
         }
     }
@@ -112,7 +117,7 @@ void MenuCarousel::loadVisibleBoxarts() {
             int idx = wrap(0, (int)romList.size(), currentIdx + o);
             RomEntry& rom = romList[idx];
             if (!rom.boxartLoaded) {
-                boxartManager.requestBoxart(rom.filename, rom.displayName, true);
+                boxartManager.requestBoxart(rom.filename, rom.displayName, true, false);
             }
         }
     }
@@ -241,12 +246,77 @@ void MenuCarousel::renderTitle(const std::string& title, int x, int y) {
         lastTitle = title;
     }
     
-    // Draw semi-transparent background for central title
-    int textWidth = title.length() * 10;
-    SDL_Rect bg = {x - textWidth/2 - 10, y - 15, textWidth + 20, 30};
+    int boxWidth = (int)(screenWidth * 0.75f);
+    int boxHeight = 34;
+    SDL_Rect bg = { x - boxWidth / 2, y - boxHeight / 2, boxWidth, boxHeight };
+    
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 180);
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
+    
+    // Draw main rectangle
     SDL_RenderFillRect(renderer, &bg);
+    
+    // Simple rounding by clearing 1x1 corners (using background color approximation)
+    SDL_SetRenderDrawColor(renderer, 0x1a, 0x1a, 0x20, 0xFF); 
+    SDL_RenderDrawPoint(renderer, bg.x, bg.y);
+    SDL_RenderDrawPoint(renderer, bg.x + bg.w - 1, bg.y);
+    SDL_RenderDrawPoint(renderer, bg.x, bg.y + bg.h - 1);
+    SDL_RenderDrawPoint(renderer, bg.x + bg.w - 1, bg.y + bg.h - 1);
+
+    SDL_Color black = {0, 0, 0, 255};
+    
+    // Calculate exact width for perfect centering
+    int totalWidth = 0;
+    for (size_t i = 0; i < title.length(); i++) {
+        unsigned char c = title[i];
+        if (c < 32 || c > 255) c = '?';
+        int cindex = c - 32;
+        int kernStart = var8x10font_kern[cindex][0];
+        int kernEnd = var8x10font_kern[cindex][1];
+        totalWidth += (int)((FONT_WIDTH - kernStart - kernEnd) * 1.5f);
+    }
+    
+    renderText(title, x - totalWidth / 2, y - 7, black, 1.5f);
+}
+
+void MenuCarousel::renderText(const std::string& text, int x, int y, SDL_Color color, float scale) {
+    SDL_SetRenderDrawColor(renderer, color.r, color.g, color.b, color.a);
+    
+    int currentX = x;
+    for (size_t i = 0; i < text.length(); i++) {
+        unsigned char c = text[i];
+        if (c < 32 || c > 255) c = '?';
+        
+        int cindex = c - 32;
+        int kernStart = var8x10font_kern[cindex][0];
+        int kernEnd = var8x10font_kern[cindex][1];
+        int charWidth = FONT_WIDTH - kernStart - kernEnd;
+        
+        for (int row = 0; row < FONT_HEIGHT; row++) {
+            for (int col = 0; col < FONT_WIDTH; col++) {
+                int charColInSheet = cindex % 16;
+                int charRowInSheet = cindex / 16;
+                
+                int totalRow = charRowInSheet * FONT_HEIGHT + row;
+                int totalCol = charColInSheet * FONT_WIDTH + col;
+                
+                if (var8x10font[totalRow][totalCol] == '#') {
+                    if (scale == 1.0f) {
+                        SDL_RenderDrawPoint(renderer, currentX + (col - kernStart), y + row);
+                    } else {
+                        SDL_Rect pixel = {
+                            (int)(currentX + (col - kernStart) * scale),
+                            (int)(y + row * scale),
+                            (int)std::ceil(scale),
+                            (int)std::ceil(scale)
+                        };
+                        SDL_RenderFillRect(renderer, &pixel);
+                    }
+                }
+            }
+        }
+        currentX += (int)(charWidth * scale);
+    }
 }
 
 void MenuCarousel::renderCard(int offset, const RomEntry& rom, float animPos) {
@@ -264,24 +334,14 @@ void MenuCarousel::renderCard(int offset, const RomEntry& rom, float animPos) {
     
     renderReflection(x, y + h/2 + 10, w, h, rom.filename, brightness * 0.4f);
     
-    SDL_Texture* tex = boxartManager.getTexture(rom.filename, blurLevel);
+        SDL_Texture* tex = boxartManager.getTexture(rom.filename, blurLevel);
     if (tex) {
         Uint8 colorMod = (Uint8)(brightness * 255);
         SDL_SetTextureColorMod(tex, colorMod, colorMod, colorMod);
         SDL_Rect dst = {x - w/2, y - h/2, w, h};
         SDL_RenderCopy(renderer, tex, nullptr, &dst);
-        
-        // Draw card label in bottom-left corner of the card
-        if (absOffset < 1.5f) {
-            std::string label = rom.displayName;
-            if (label.length() > 20) label = label.substr(0, 17) + "...";
-            
-            SDL_Rect labelBg = {x - w/2 + 5, y + h/2 - 25, (int)label.length() * 8 + 10, 20};
-            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 150);
-            SDL_RenderFillRect(renderer, &labelBg);
-        }
     }
-    
+
     if (absOffset < 0.1f) {
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 50);
@@ -319,7 +379,7 @@ void MenuCarousel::render() {
     }
     
     int centerIdx = getSelectedIndex();
-    renderTitle(romList[centerIdx].displayName, screenWidth / 2, screenHeight / 2 + (int)(CARD_HEIGHT * 1.15f / 2) + 40);
+    renderTitle(romList[centerIdx].displayName, screenWidth / 2, screenHeight / 2 - 170);
     
     SDL_RenderPresent(renderer);
 }

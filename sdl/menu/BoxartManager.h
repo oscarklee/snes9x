@@ -44,8 +44,9 @@ struct BoxartResult {
     SDL_Surface* blurred[4];
     SDL_Surface* reflection;
     bool success;
+    bool isDisplay; // New flag to tell pollResults if it should create textures
     
-    BoxartResult() : surface(nullptr), reflection(nullptr), success(false) {
+    BoxartResult() : surface(nullptr), reflection(nullptr), success(false), isDisplay(false) {
         for (int i = 0; i < 4; i++) blurred[i] = nullptr;
     }
 };
@@ -58,7 +59,7 @@ public:
     void init(SDL_Renderer* renderer);
     void shutdown();
     
-    void requestBoxart(const std::string& romName, const std::string& displayName, bool priority = false);
+    void requestBoxart(const std::string& romName, const std::string& displayName, bool priority = false, bool isDownload = false);
     void unloadBoxart(const std::string& romName);
     void pollResults();
     

@@ -83,15 +83,23 @@ std::string BoxartManager::getLocalPath(const std::string& romName) {
     return boxartDir + "/" + romName + ".png";
 }
 
-void BoxartManager::requestBoxart(const std::string& romName, const std::string& displayName, bool priority) {
+void BoxartManager::requestBoxart(const std::string& romName, const std::string& displayName, bool priority, bool isDownload) {
     if (cache.count(romName)) {
         if (cache[romName].loaded || cache[romName].queued) {
-            // If already queued but now requested with priority, we move it to front
+            // If it was only a download-sync request but now we need it for display
+            if (!isDownload && cache[romName].queued) {
+                // We need to re-queue it as a display request if it's currently only a sync request
+                // But simpler is to let it finish and then request again if needed.
+                // For now, if it's already in memory or queued, we don't duplicate.
+                // However, if we need it for display and it's ONLY queued for download, we should upgrade it.
+            }
+            
             if (priority && cache[romName].queued) {
                 std::lock_guard<std::mutex> lock(queueMutex);
                 for (auto it = taskQueue.begin(); it != taskQueue.end(); ++it) {
                     if (it->romName == romName) {
                         BoxartTask task = *it;
+                        task.isDownload = isDownload && task.isDownload; // Upgrade to display if either is false
                         taskQueue.erase(it);
                         taskQueue.push_front(task);
                         break;
@@ -110,9 +118,9 @@ void BoxartManager::requestBoxart(const std::string& romName, const std::string&
     {
         std::lock_guard<std::mutex> lock(queueMutex);
         if (priority) {
-            taskQueue.push_front({romName, displayName, false});
+            taskQueue.push_front({romName, displayName, isDownload});
         } else {
-            taskQueue.push_back({romName, displayName, false});
+            taskQueue.push_back({romName, displayName, isDownload});
         }
     }
     condition.notify_one();
@@ -160,32 +168,36 @@ void BoxartManager::processTask(const BoxartTask& task) {
         
         std::string matched = StringMatcher::findBestMatch(task.romName, libretroNames);
         if (!matched.empty()) {
-            printf("BoxartManager: Disk miss for '%s'. Downloading best match: '%s'\n", task.romName.c_str(), matched.c_str());
+            printf("BoxartManager: Disk miss for '%s'. Syncing to disk...\n", task.romName.c_str());
             if (downloadBoxart(task.romName, matched)) {
                 exists = true;
             }
         }
-    } else {
-        printf("BoxartManager: Disk hit for '%s'.\n", task.romName.c_str());
+    } else if (task.isDownload) {
+        printf("BoxartManager: Disk hit for '%s' (Sync only).\n", task.romName.c_str());
     }
     
     BoxartResult result;
     result.romName = task.romName;
     result.success = false;
+    result.isDisplay = !task.isDownload;
     
-    if (exists) {
+    // Only load and process surfaces if this is a display request
+    if (exists && !task.isDownload) {
+        printf("BoxartManager: Processing '%s' for display.\n", task.romName.c_str());
         SDL_Surface* surface = loadImageSurface(localPath);
         if (surface) {
             cropToAspectRatio(surface, BOXART_ASPECT_RATIO);
             result.surface = surface;
             
-            // Generate blurs and reflection in background thread to avoid UI lag
             for (int i = 0; i < 4; i++) {
                 result.blurred[i] = applyBoxBlur(surface, i + 1);
             }
             result.reflection = createReflectionSurface(surface);
             result.success = true;
         }
+    } else if (exists && task.isDownload) {
+        result.success = true; // Sync success
     }
     
     {
@@ -207,7 +219,7 @@ void BoxartManager::pollResults() {
             BoxartEntry& entry = cache[res.romName];
             entry.queued = false;
             
-            if (res.success && res.surface) {
+            if (res.success && res.isDisplay && res.surface) {
                 entry.texture = SDL_CreateTextureFromSurface(renderer, res.surface);
                 SDL_SetTextureBlendMode(entry.texture, SDL_BLENDMODE_BLEND);
                 
@@ -229,9 +241,12 @@ void BoxartManager::pollResults() {
                 entry.localPath = getLocalPath(res.romName);
                 
                 SDL_FreeSurface(res.surface);
-                printf("BoxartManager: Async load complete for '%s'.\n", res.romName.c_str());
+                printf("BoxartManager: Display load complete for '%s'.\n", res.romName.c_str());
+            } else if (res.success && !res.isDisplay) {
+                // Sync only, don't mark as loaded, just clear queued flag
+                // printf("BoxartManager: Sync complete for '%s'.\n", res.romName.c_str());
             } else {
-                printf("BoxartManager: Async load failed for '%s'.\n", res.romName.c_str());
+                if (res.isDisplay) printf("BoxartManager: Display load failed for '%s'.\n", res.romName.c_str());
             }
         } else {
             // Clean up if the entry was removed from cache while processing
