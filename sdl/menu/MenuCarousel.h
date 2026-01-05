@@ -16,9 +16,9 @@ struct RomEntry {
 
 class MenuCarousel {
 public:
-    static const int CARD_WIDTH = 200;
-    static const int CARD_HEIGHT = 140;
-    static const int GAP = 30;
+    static const int CARD_WIDTH = 600;
+    static const int CARD_HEIGHT = 420;
+    static const int GAP = 120;
     static const int VISIBLE_RANGE = 2; // Selection + 2 items on each side = 5 total visible
 
     MenuCarousel();

@@ -517,7 +517,7 @@ void MenuCarousel::render() {
     }
     
     int centerIdx = getSelectedIndex();
-    renderTitle(romList[centerIdx].displayName, screenWidth / 2, screenHeight / 2 - 170);
+    renderTitle(romList[centerIdx].displayName, screenWidth / 2, screenHeight / 2 - 350);
     
     SDL_RenderPresent(renderer);
 }

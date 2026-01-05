@@ -10,7 +10,6 @@
 #include <regex>
 
 static const char* LIBRETRO_BASE_URL = "https://thumbnails.libretro.com/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/Named_Boxarts/";
-static const float BOXART_ASPECT_RATIO = 512.0f / 357.0f;
 
 static size_t writeCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     std::ofstream* file = static_cast<std::ofstream*>(userp);
@@ -207,12 +206,12 @@ void BoxartManager::processTask(const BoxartTask& task) {
     result.isDisplay = !task.isDownload;
     
     if (exists && !task.isDownload) {
-        SDL_Surface* surface = loadImageSurface(localPath);
-        if (surface) {
-            // Scale to a maximum height while preserving aspect ratio
-            scaleToFit(surface, 512, 256);
-            result.surface = surface;
-            result.blurred = applyBoxBlur(surface, blurRadius);
+          SDL_Surface* surface = loadImageSurface(localPath);
+          if (surface) {
+              // Allow up to 800x600 for high quality on large screens
+              scaleToFit(surface, 800, 600);
+              result.surface = surface;
+              result.blurred = applyBoxBlur(surface, blurRadius);
             result.success = true;
         } else {
             remove(localPath.c_str());
