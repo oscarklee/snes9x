@@ -33,11 +33,13 @@ void MenuCarousel::init(SDL_Renderer* r, int w, int h) {
     lastFrameTime = SDL_GetTicks();
     
     boxartManager.init(renderer);
+    
     boxartManager.setBlurRadius(blurRadius);
     animation.setPosition(0.0f);
     animation.setTarget(0.0f);
 
     createStaticTextures();
+    boxartManager.startWorker();
 }
 
 void MenuCarousel::shutdown() {
@@ -96,11 +98,10 @@ void MenuCarousel::loadState() {
 void MenuCarousel::createStaticTextures() {
     if (!renderer) return;
 
-    printf("MenuCarousel: Creating static textures...\n");
-
     // Create background gradient (1x256)
-    SDL_Surface* bgSurf = SDL_CreateRGBSurfaceWithFormat(0, 1, 256, 32, SDL_PIXELFORMAT_RGBA8888);
+    SDL_Surface* bgSurf = SDL_CreateRGBSurfaceWithFormat(0, 1, 256, 16, SDL_PIXELFORMAT_RGB565);
     if (bgSurf) {
+        SDL_LockSurface(bgSurf);
         for (int y = 0; y < 256; y++) {
             float t = (float)y / 255.0f;
             Uint8 r, g, b;
@@ -115,9 +116,10 @@ void MenuCarousel::createStaticTextures() {
                 g = (Uint8)(0x1a - localT * (0x1a - 0x0f));
                 b = (Uint8)(0x35 - localT * (0x35 - 0x11));
             }
-            Uint32* row = (Uint32*)((Uint8*)bgSurf->pixels + y * bgSurf->pitch);
-            *row = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+            Uint16* row = (Uint16*)((Uint8*)bgSurf->pixels + y * bgSurf->pitch);
+            *row = (Uint16)SDL_MapRGB(bgSurf->format, r, g, b);
         }
+        SDL_UnlockSurface(bgSurf);
         backgroundGradient = SDL_CreateTextureFromSurface(renderer, bgSurf);
         SDL_FreeSurface(bgSurf);
     }
@@ -125,18 +127,19 @@ void MenuCarousel::createStaticTextures() {
     // Create reflection overlay (1x128)
     SDL_Surface* refSurf = SDL_CreateRGBSurfaceWithFormat(0, 1, 128, 32, SDL_PIXELFORMAT_RGBA8888);
     if (refSurf) {
+        SDL_LockSurface(refSurf);
         for (int y = 0; y < 128; y++) {
             float t = (float)y / 127.0f;
             float factor = std::pow(t, 0.5f); 
             Uint8 alpha = (Uint8)(factor * 255);
             Uint32* row = (Uint32*)((Uint8*)refSurf->pixels + y * refSurf->pitch);
-            *row = (0x0f << 24) | (0x0f << 16) | (0x11 << 8) | alpha;
+            *row = (Uint32)SDL_MapRGBA(refSurf->format, 0x0f, 0x0f, 0x11, alpha);
         }
+        SDL_UnlockSurface(refSurf);
         reflectionOverlay = SDL_CreateTextureFromSurface(renderer, refSurf);
         if (reflectionOverlay) SDL_SetTextureBlendMode(reflectionOverlay, SDL_BLENDMODE_BLEND);
         SDL_FreeSurface(refSurf);
     }
-    printf("MenuCarousel: Static textures created.\n");
 }
 
 void MenuCarousel::setLibretroNames(const std::vector<std::string>& names) {
@@ -195,15 +198,13 @@ void MenuCarousel::scanRomDirectory(const std::string& romDir) {
 
     loadState();
 
-    // Initial bulk download in outside-in pattern (Process for memory as well)
     int n = (int)romList.size();
     if (n > 0) {
-        printf("Menu: Starting proactive background load for %d ROMs...\n", n);
-        for (int i = 0; i < (n + 1) / 2; i++) {
+        // Only proactively load ROMs near the current selection to save memory/CPU
+        int start = std::max(0, activeIndex - 50);
+        int end = std::min(n, activeIndex + 50);
+        for (int i = start; i < end; i++) {
             boxartManager.requestBoxart(romList[i].filename, romList[i].displayName, false, false);
-            if (i < n - 1 - i) {
-                boxartManager.requestBoxart(romList[n - 1 - i].filename, romList[n - 1 - i].displayName, false, false);
-            }
         }
     }
 }
@@ -275,12 +276,14 @@ void MenuCarousel::update(float deltaTime) {
 
     boxartManager.pollResults();
     
-    // Update loaded state from BoxartManager
+    // Update loaded state from BoxartManager for visible range
     for (int offset = -VISIBLE_RANGE; offset <= VISIBLE_RANGE; offset++) {
         int idx = wrap(0, (int)romList.size(), activeIndex + offset);
-        SDL_Texture* tex = boxartManager.getTexture(romList[idx].filename);
-        if (tex && tex != boxartManager.getTexture("NON_EXISTENT_FORCE_PLACEHOLDER")) {
-            romList[idx].boxartLoaded = true;
+        if (!romList[idx].boxartLoaded) {
+            SDL_Texture* tex = boxartManager.getTexture(romList[idx].filename);
+            if (tex && tex != boxartManager.getTexture("NON_EXISTENT_FORCE_PLACEHOLDER")) {
+                romList[idx].boxartLoaded = true;
+            }
         }
     }
     

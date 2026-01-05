@@ -183,14 +183,9 @@ const char * S9xParseDisplayConfig (ConfigFile &conf, int pass)
 
 void S9xInitDisplay (int argc, char **argv)
 {
-	printf("Initializing SDL2...\n");
 	if (SDL_Init(SDL_INIT_VIDEO) != 0)
 	{
-		printf("Unable to initialize SDL: %s\n", SDL_GetError());
-	}
-	else
-	{
-		printf("SDL2 initialized.\n");
+		fprintf(stderr, "Unable to initialize SDL: %s\n", SDL_GetError());
 	}
   
 	atexit(SDL_Quit);

@@ -39,14 +39,17 @@ BoxartManager::~BoxartManager() {
 void BoxartManager::init(SDL_Renderer* r) {
     renderer = r;
     ensureDirectoryExists();
+    
     IMG_Init(IMG_INIT_PNG | IMG_INIT_JPG);
     
     stopWorker = false;
-    for (int i = 0; i < 1; i++) {
+    placeholderTexture = createPlaceholderTexture("Loading...");
+}
+
+void BoxartManager::startWorker() {
+    if (workerThreads.empty()) {
         workerThreads.emplace_back(&BoxartManager::workerFunc, this);
     }
-    
-    placeholderTexture = createPlaceholderTexture("Loading...");
 }
 
 void BoxartManager::shutdown() {
@@ -60,10 +63,13 @@ void BoxartManager::shutdown() {
     }
     workerThreads.clear();
     
-    for (auto& pair : cache) {
-        pair.second.destroy();
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        for (auto& pair : cache) {
+            pair.second.destroy();
+        }
+        cache.clear();
     }
-    cache.clear();
     
     if (placeholderTexture) {
         SDL_DestroyTexture(placeholderTexture);
@@ -87,36 +93,34 @@ std::string BoxartManager::getLocalPath(const std::string& romName) {
 }
 
 void BoxartManager::requestBoxart(const std::string& romName, const std::string& displayName, bool priority, bool isDownload) {
-    if (cache.count(romName)) {
-        if (cache[romName].loaded || cache[romName].queued) {
-            // If it was only a download-sync request but now we need it for display
-            if (!isDownload && cache[romName].queued) {
-                // We need to re-queue it as a display request if it's currently only a sync request
-                // But simpler is to let it finish and then request again if needed.
-                // For now, if it's already in memory or queued, we don't duplicate.
-                // However, if we need it for display and it's ONLY queued for download, we should upgrade it.
-            }
-            
-            if (priority && cache[romName].queued) {
-                std::lock_guard<std::mutex> lock(queueMutex);
-                for (auto it = taskQueue.begin(); it != taskQueue.end(); ++it) {
-                    if (it->romName == romName) {
-                        BoxartTask task = *it;
-                        task.isDownload = isDownload && task.isDownload; // Upgrade to display if either is false
-                        taskQueue.erase(it);
-                        taskQueue.push_front(task);
-                        break;
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        if (cache.count(romName)) {
+            BoxartEntry& entry = cache[romName];
+            entry.lastUsed = SDL_GetTicks();
+            if (entry.loaded || entry.queued || entry.failed) {
+                if (priority && entry.queued) {
+                    std::lock_guard<std::mutex> qlock(queueMutex);
+                    for (auto it = taskQueue.begin(); it != taskQueue.end(); ++it) {
+                        if (it->romName == romName) {
+                            BoxartTask task = *it;
+                            task.isDownload = isDownload && task.isDownload;
+                            taskQueue.erase(it);
+                            taskQueue.push_front(task);
+                            break;
+                        }
                     }
                 }
+                return;
             }
-            return;
         }
+        
+        BoxartEntry entry;
+        entry.loaded = false;
+        entry.queued = true;
+        entry.lastUsed = SDL_GetTicks();
+        cache[romName] = entry;
     }
-    
-    BoxartEntry entry;
-    entry.loaded = false;
-    entry.queued = true;
-    cache[romName] = entry;
     
     {
         std::lock_guard<std::mutex> lock(queueMutex);
@@ -130,11 +134,15 @@ void BoxartManager::requestBoxart(const std::string& romName, const std::string&
 }
 
 void BoxartManager::unloadBoxart(const std::string& romName) {
-    auto it = cache.find(romName);
-    if (it != cache.end()) {
-        it->second.destroy();
-        cache.erase(it);
+    {
+        std::lock_guard<std::mutex> lock(cacheMutex);
+        auto it = cache.find(romName);
+        if (it != cache.end()) {
+            it->second.destroy();
+            cache.erase(it);
+        }
     }
+
     std::lock_guard<std::mutex> lock(queueMutex);
     for (auto bit = taskQueue.begin(); bit != taskQueue.end(); ) {
         if (bit->romName == romName) {
@@ -146,6 +154,8 @@ void BoxartManager::unloadBoxart(const std::string& romName) {
 }
 
 void BoxartManager::workerFunc() {
+    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+
     while (true) {
         BoxartTask task;
         {
@@ -156,6 +166,8 @@ void BoxartManager::workerFunc() {
             taskQueue.pop_front();
         }
         processTask(task);
+        // Reduce background CPU load to prevent audio starvation on RPi Zero
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
 
@@ -164,24 +176,22 @@ void BoxartManager::processTask(const BoxartTask& task) {
     struct stat st;
     bool exists = (stat(localPath.c_str(), &st) == 0);
     
-    // Safety check for empty or tiny files (failed/interrupted downloads)
     if (exists && st.st_size < 100) {
         remove(localPath.c_str());
         exists = false;
     }
 
     if (!exists) {
+        std::string matched;
         {
             std::lock_guard<std::mutex> lock(indexMutex);
             if (!libretroIndexLoaded) {
                 fetchLibretroIndex();
             }
-        }
-        
-        std::string matched;
-        {
-            std::lock_guard<std::mutex> lock(indexMutex);
-            matched = StringMatcher::findBestMatch(task.romName, libretroNames);
+            if (libretroIndexLoaded) {
+                std::string normalizedRom = StringMatcher::normalize(task.romName);
+                matched = StringMatcher::findBestMatchFast(normalizedRom, libretroNames, normalizedLibretroNames);
+            }
         }
 
         if (!matched.empty()) {
@@ -196,24 +206,18 @@ void BoxartManager::processTask(const BoxartTask& task) {
     result.success = false;
     result.isDisplay = !task.isDownload;
     
-    // Only load and process surfaces if this is a display request
     if (exists && !task.isDownload) {
         SDL_Surface* surface = loadImageSurface(localPath);
         if (surface) {
-            cropAndScale(surface, 256, 178); // Optimized size
+            cropAndScale(surface, 256, 178);
             result.surface = surface;
-            
-            // Generate a single blurred version for side cards using configurable radius
             result.blurred = applyBoxBlur(surface, blurRadius);
-            
             result.success = true;
         } else {
-            // If loading failed (e.g. libpng error), delete the file so it can be re-downloaded
-            printf("BoxartManager: CORRUPTION DETECTED in '%s'. Deleting for re-download.\n", localPath.c_str());
             remove(localPath.c_str());
         }
     } else if (exists && task.isDownload) {
-        result.success = true; // Sync success
+        result.success = true;
     }
     
     {
@@ -231,40 +235,82 @@ void BoxartManager::pollResults() {
         resultQueue.clear();
     }
     
-    for (auto& res : results) {
-        if (cache.count(res.romName)) {
-            BoxartEntry& entry = cache[res.romName];
-            entry.queued = false;
+    const size_t MAX_LOADED_TEXTURES = 64;
+    const size_t MAX_TEXTURES_PER_POLL = 2; // Limit GPU uploads per frame
+    size_t texturesCreated = 0;
+    
+    for (auto it = results.begin(); it != results.end(); ) {
+        bool processed = false;
+        {
+            std::lock_guard<std::mutex> lock(cacheMutex);
             
-            if (res.success && res.isDisplay) {
-                if (res.surface) {
-                    entry.texture = SDL_CreateTextureFromSurface(renderer, res.surface);
-                    if (entry.texture) {
-                        SDL_SetTextureBlendMode(entry.texture, SDL_BLENDMODE_BLEND);
-                        entry.loaded = true;
-                        entry.localPath = getLocalPath(res.romName);
-                    }
-                }
+            if (cache.count(it->romName)) {
+                BoxartEntry& entry = cache[it->romName];
                 
-                if (res.blurred) {
-                    entry.blurred = SDL_CreateTextureFromSurface(renderer, res.blurred);
-                    if (entry.blurred) {
-                        SDL_SetTextureBlendMode(entry.blurred, SDL_BLENDMODE_BLEND);
+                if (it->success && it->isDisplay) {
+                    if (texturesCreated < MAX_TEXTURES_PER_POLL) {
+                        // Eviction logic
+                        size_t loadedCount = 0;
+                        for (auto const& [name, e] : cache) { if (e.loaded) loadedCount++; }
+                        
+                        if (loadedCount >= MAX_LOADED_TEXTURES) {
+                            std::string oldestName = "";
+                            uint32_t oldestUsed = 0xFFFFFFFF;
+                            for (auto const& [name, e] : cache) {
+                                if (e.loaded && e.lastUsed < oldestUsed) {
+                                    oldestUsed = e.lastUsed;
+                                    oldestName = name;
+                                }
+                            }
+                            if (!oldestName.empty()) {
+                                cache[oldestName].destroy();
+                                cache.erase(oldestName);
+                            }
+                        }
+
+                        if (it->surface) {
+                            entry.texture = SDL_CreateTextureFromSurface(renderer, it->surface);
+                            if (entry.texture) {
+                                SDL_SetTextureBlendMode(entry.texture, SDL_BLENDMODE_BLEND);
+                                entry.loaded = true;
+                                entry.localPath = getLocalPath(it->romName);
+                            }
+                        }
+                        
+                        if (it->blurred) {
+                            entry.blurred = SDL_CreateTextureFromSurface(renderer, it->blurred);
+                            if (entry.blurred) {
+                                SDL_SetTextureBlendMode(entry.blurred, SDL_BLENDMODE_BLEND);
+                            }
+                        }
+                        entry.queued = false;
+                        texturesCreated++;
+                        processed = true;
                     }
+                } else {
+                    entry.queued = false;
+                    if (!it->success && it->isDisplay) entry.failed = true;
+                    processed = true;
                 }
-            } else if (res.isDisplay) {
-                printf("BoxartManager: Load failed for '%s'\n", res.romName.c_str());
+            } else {
+                processed = true; // ROM no longer in cache
             }
         }
         
-        // Safety: Always free surfaces if they were allocated
-        if (res.surface) {
-            SDL_FreeSurface(res.surface);
-            res.surface = nullptr;
+        if (processed) {
+            if (it->surface) SDL_FreeSurface(it->surface);
+            if (it->blurred) SDL_FreeSurface(it->blurred);
+            it = results.erase(it);
+        } else {
+            ++it;
         }
-        if (res.blurred) {
-            SDL_FreeSurface(res.blurred);
-            res.blurred = nullptr;
+    }
+    
+    // If some results weren't processed (due to MAX_TEXTURES_PER_POLL), put them back
+    if (!results.empty()) {
+        std::lock_guard<std::mutex> lock(queueMutex);
+        for (auto const& res : results) {
+            resultQueue.push_front(res);
         }
     }
 }
@@ -272,8 +318,6 @@ void BoxartManager::pollResults() {
 void BoxartManager::fetchLibretroIndex() {
     if (libretroIndexLoaded) return;
     
-    // Note: Caller must hold indexMutex
-    printf("BoxartManager: Scraping Libretro index for boxarts...\n");
     CURL* curl = curl_easy_init();
     if (!curl) return;
     
@@ -289,16 +333,20 @@ void BoxartManager::fetchLibretroIndex() {
     
     if (res == CURLE_OK) {
         size_t pos = 0;
-        while ((pos = html.find(".png\"", pos)) != std::string::npos) {
-            size_t start = html.rfind("href=\"", pos);
+        const std::string needle = ".png\"";
+        const std::string hrefNeedle = "href=\"";
+        
+        while ((pos = html.find(needle, pos)) != std::string::npos) {
+            size_t start = html.rfind(hrefNeedle, pos);
             if (start != std::string::npos && pos - start < 256) {
-                // Extract filename including .png (pos is at '.', pos+4 is after 'g')
-                std::string name = html.substr(start + 6, pos - start - 6 + 4);
-                libretroNames.push_back(StringMatcher::urlDecode(name));
+                std::string name = html.substr(start + hrefNeedle.length(), pos - start - hrefNeedle.length() + 4);
+                std::string decodedName = StringMatcher::urlDecode(name);
+                
+                libretroNames.push_back(decodedName);
+                normalizedLibretroNames.push_back(StringMatcher::normalize(decodedName));
             }
-            pos += 5;
+            pos += needle.length();
         }
-        printf("BoxartManager: Indexed %zu available images from Libretro.\n", libretroNames.size());
         libretroIndexLoaded = true;
     }
 }
@@ -308,19 +356,20 @@ bool BoxartManager::downloadBoxart(const std::string& romName, const std::string
     std::string encodedName = StringMatcher::urlEncode(matchedName);
     std::string url = std::string(LIBRETRO_BASE_URL) + encodedName;
     
-    printf("BoxartManager: Downloading '%s' -> '%s.png'\n", matchedName.c_str(), romName.c_str());
-    
     CURL* curl = curl_easy_init();
     if (!curl) return false;
     
     std::ofstream file(localPath, std::ios::binary);
-    if (!file.is_open()) return false;
+    if (!file.is_open()) {
+        curl_easy_cleanup(curl);
+        return false;
+    }
     
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writeCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &file);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     
     CURLcode res = curl_easy_perform(curl);
@@ -331,9 +380,9 @@ bool BoxartManager::downloadBoxart(const std::string& romName, const std::string
     curl_easy_cleanup(curl);
     
     if (res == CURLE_OK && httpCode == 200) {
-        printf("BoxartManager: Download successful.\n");
         return true;
     }
+    
     remove(localPath.c_str());
     return false;
 }
@@ -341,7 +390,7 @@ bool BoxartManager::downloadBoxart(const std::string& romName, const std::string
 SDL_Surface* BoxartManager::loadImageSurface(const std::string& path) {
     SDL_Surface* surface = IMG_Load(path.c_str());
     if (!surface) return nullptr;
-    // Optimized pixel format for RPi Zero
+    
     SDL_Surface* converted = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_RGB565, 0);
     SDL_FreeSurface(surface);
     return converted;
@@ -377,55 +426,58 @@ void BoxartManager::cropAndScale(SDL_Surface*& surface, int targetW, int targetH
 SDL_Surface* BoxartManager::applyBoxBlur(SDL_Surface* src, int radius) {
     if (!src || radius <= 0) return nullptr;
     
-    // Ensure we are working with RGB565 as expected
     SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 16, SDL_PIXELFORMAT_RGB565);
     if (!dst) return nullptr;
 
     int w = src->w;
     int h = src->h;
-    int srcPitch = src->pitch / 2; // Uint16 is 2 bytes
+    int srcPitch = src->pitch / 2;
     int dstPitch = dst->pitch / 2;
     Uint16* srcPixels = (Uint16*)src->pixels;
-            Uint16* dstPixels = (Uint16*)dst->pixels;
+    Uint16* dstPixels = (Uint16*)dst->pixels;
 
-            for (int y = 0; y < h; y++) {
-                for (int x = 0; x < w; x++) {
-                    int r = 0, g = 0, b = 0, count = 0;
-                    for (int ky = -radius; ky <= radius; ky++) {
-                        int py = y + ky;
-                        if (py < 0 || py >= h) continue;
-                        for (int kx = -radius; kx <= radius; kx++) {
-                            int px = x + kx;
-                            if (px < 0 || px >= w) continue;
-                            
-                            Uint16 pixel = srcPixels[py * srcPitch + px];
-                            r += (pixel >> 11) & 0x1F;
-                            g += (pixel >> 5) & 0x3F;
-                            b += pixel & 0x1F;
-                            count++;
-                        }
-                    }
-                    if (count > 0) {
-                        dstPixels[y * dstPitch + x] = (Uint16)(((r / count) << 11) | ((g / count) << 5) | (b / count));
-                    }
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            int r = 0, g = 0, b = 0, count = 0;
+            for (int ky = -radius; ky <= radius; ky++) {
+                int py = y + ky;
+                if (py < 0 || py >= h) continue;
+                for (int kx = -radius; kx <= radius; kx++) {
+                    int px = x + kx;
+                    if (px < 0 || px >= w) continue;
+                    
+                    Uint16 pixel = srcPixels[py * srcPitch + px];
+                    r += (pixel >> 11) & 0x1F;
+                    g += (pixel >> 5) & 0x3F;
+                    b += pixel & 0x1F;
+                    count++;
                 }
             }
-            return dst;
+            if (count > 0) {
+                dstPixels[y * dstPitch + x] = (Uint16)(((r / count) << 11) | ((g / count) << 5) | (b / count));
+            }
         }
+    }
+    return dst;
+}
 
 SDL_Texture* BoxartManager::createPlaceholderTexture(const std::string& name) {
     if (!renderer) return nullptr;
-    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, 512, 357, 32, SDL_PIXELFORMAT_RGBA8888);
-    SDL_FillRect(s, nullptr, SDL_MapRGBA(s->format, 40, 40, 50, 255));
+    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, 16, 16, 16, SDL_PIXELFORMAT_RGB565);
+    if (!s) return nullptr;
+    SDL_FillRect(s, nullptr, SDL_MapRGB(s->format, 40, 40, 50));
     SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, s);
-    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+    if (tex) SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
     SDL_FreeSurface(s);
     return tex;
 }
 
 SDL_Texture* BoxartManager::getTexture(const std::string& romName, int blurLevel) {
+    std::lock_guard<std::mutex> lock(cacheMutex);
     auto it = cache.find(romName);
     if (it == cache.end() || !it->second.loaded) return placeholderTexture;
+    
+    it->second.lastUsed = SDL_GetTicks();
     if (blurLevel > 0 && it->second.blurred) return it->second.blurred;
     return it->second.texture;
 }

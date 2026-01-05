@@ -14,15 +14,18 @@ struct BoxartEntry {
     SDL_Texture* texture;
     SDL_Texture* blurred;
     std::string localPath;
+    uint32_t lastUsed;
     bool loaded;
     bool queued;
+    bool failed;
     
-    BoxartEntry() : texture(nullptr), blurred(nullptr), loaded(false), queued(false) {}
+    BoxartEntry() : texture(nullptr), blurred(nullptr), lastUsed(0), loaded(false), queued(false), failed(false) {}
     
     void destroy() {
         if (texture) { SDL_DestroyTexture(texture); texture = nullptr; }
         if (blurred) { SDL_DestroyTexture(blurred); blurred = nullptr; }
         loaded = false;
+        failed = false;
     }
 };
 
@@ -49,6 +52,7 @@ public:
     
     void init(SDL_Renderer* renderer);
     void shutdown();
+    void startWorker();
     
     void setBlurRadius(int radius) { blurRadius = radius; }
     
@@ -66,8 +70,10 @@ private:
     SDL_Renderer* renderer;
     std::string boxartDir;
     std::map<std::string, BoxartEntry> cache;
+    std::mutex cacheMutex; // Mutex for cache
     std::vector<std::string> libretroNames;
-    std::mutex indexMutex; // Mutex for libretroNames
+    std::vector<std::string> normalizedLibretroNames; // Pre-normalized names for fast matching
+    std::mutex indexMutex; // Mutex for libretroNames and normalizedLibretroNames
     SDL_Texture* placeholderTexture;
     
     int blurRadius;

@@ -113,19 +113,8 @@ static uint32	old_joypads[8];
 
 void S9xParseInputConfig(ConfigFile &, int pass); // defined in sdlinput
 
-static long log2 (long);
 static void NSRTControllerSetup (void);
 static int make_snes9x_dirs (void);
-
-static long log2 (long num)
-{
-	long	n = 0;
-
-	while (num >>= 1)
-		n++;
-
-	return (n);
-}
 
 void S9xExtraUsage (void) // domaemon: ExtraUsage -> ExtraDisplayUsage
 {
@@ -756,7 +745,6 @@ bool8 S9xLoadROM (const char *filename)
 
 void S9xMenuInit (void)
 {
-    printf("S9xMenuInit: Starting menu initialization...\n");
     if (g_state == STATE_GAME)
     {
         Settings.StopEmulation = TRUE;
@@ -767,25 +755,19 @@ void S9xMenuInit (void)
     std::string rom_dir = std::string(getenv("HOME")) + SLASH_STR + "roms";
     
     if (!g_carousel) {
-        printf("S9xMenuInit: Creating new MenuCarousel...\n");
         g_carousel = new MenuCarousel();
         SDL_Renderer* renderer = S9xGetRenderer();
         if (renderer) {
-            printf("S9xMenuInit: Renderer found, initializing carousel...\n");
             int w, h;
             SDL_GetRendererOutputSize(renderer, &w, &h);
             g_carousel->init(renderer, w, h);
-        } else {
-            printf("S9xMenuInit: WARNING - No renderer found during carousel creation!\n");
         }
     }
     
-    printf("S9xMenuInit: Scanning ROM directory: %s\n", rom_dir.c_str());
     g_carousel->scanRomDirectory(rom_dir);
     g_last_menu_time = SDL_GetTicks();
     g_state = STATE_MENU;
     S9xSetTitle("Snes9x - ROM Selection");
-    printf("S9xMenuInit: Menu initialized successfully.\n");
 }
 
 void S9xMenuUpdate(float deltaTime)
@@ -910,7 +892,6 @@ int main (int argc, char **argv)
 	S9xSetRenderPixelFormat(RGB565);
 #endif
 
-	uint32	saved_flags = CPU.Flags;
 	bool8	loaded = FALSE;
 
 	if (Settings.Multi)

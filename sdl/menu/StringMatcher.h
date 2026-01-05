@@ -9,6 +9,7 @@ public:
     static int damerauLevenshteinDistance(const std::string& s1, const std::string& s2);
     static std::string normalize(const std::string& input);
     static std::string findBestMatch(const std::string& romName, const std::vector<std::string>& candidates);
+    static std::string findBestMatchFast(const std::string& normalizedRom, const std::vector<std::string>& candidates, const std::vector<std::string>& normalizedCandidates);
     static std::string urlEncode(const std::string& input);
     static std::string urlDecode(const std::string& input);
 

@@ -13,34 +13,32 @@ int StringMatcher::damerauLevenshteinDistance(const std::string& s1, const std::
     if (len1 == 0) return len2;
     if (len2 == 0) return len1;
     
-    // Optimization: Use a heap allocation to avoid stack overflow
-    static const int MAX_LEN = 256;
-    if (len1 >= MAX_LEN || len2 >= MAX_LEN) return 999;
+    if (len1 > 128 || len2 > 128) return 999;
 
-    std::vector<int> d((len1 + 1) * (len2 + 1));
-    auto getD = [&](size_t i, size_t j) -> int& { return d[i * (len2 + 1) + j]; };
+    // Use a fixed-size buffer on the stack to avoid malloc thrashing
+    int d[130][130];
     
-    for (size_t i = 0; i <= len1; i++) getD(i, 0) = i;
-    for (size_t j = 0; j <= len2; j++) getD(0, j) = j;
+    for (size_t i = 0; i <= len1; i++) d[i][0] = i;
+    for (size_t j = 0; j <= len2; j++) d[0][j] = j;
     
     for (size_t i = 1; i <= len1; i++) {
         for (size_t j = 1; j <= len2; j++) {
             int cost = (s1[i-1] == s2[j-1]) ? 0 : 1;
             
-            int del = getD(i-1, j) + 1;
-            int ins = getD(i, j-1) + 1;
-            int sub = getD(i-1, j-1) + cost;
+            int del = d[i-1][j] + 1;
+            int ins = d[i][j-1] + 1;
+            int sub = d[i-1][j-1] + cost;
             
             int res = std::min({del, ins, sub});
             
             if (i > 1 && j > 1 && s1[i-1] == s2[j-2] && s1[i-2] == s2[j-1]) {
-                res = std::min(res, getD(i-2, j-2) + cost);
+                res = std::min(res, d[i-2][j-2] + cost);
             }
-            getD(i, j) = res;
+            d[i][j] = res;
         }
     }
     
-    return getD(len1, len2);
+    return d[len1][len2];
 }
 
 std::string StringMatcher::removeExtension(const std::string& filename) {
@@ -91,7 +89,7 @@ std::string StringMatcher::removeSpecialChars(const std::string& input) {
     result.reserve(input.length());
     
     for (char c : input) {
-        if (std::isalnum(static_cast<unsigned char>(c)) || c == ' ') {
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == ' ' || c == '+' || c == '&') {
             result += c;
         } else if (c == '-' || c == '_' || c == ':' || c == '\'') {
             result += ' ';
@@ -136,7 +134,6 @@ std::string StringMatcher::normalize(const std::string& input) {
 
 std::string StringMatcher::findBestMatch(const std::string& romName, const std::vector<std::string>& candidates) {
     if (candidates.empty()) return "";
-    
     std::string normalizedRom = normalize(romName);
     
     std::string bestMatch;
@@ -149,6 +146,26 @@ std::string StringMatcher::findBestMatch(const std::string& romName, const std::
         if (distance < bestDistance) {
             bestDistance = distance;
             bestMatch = candidate;
+        }
+        
+        if (distance == 0) break;
+    }
+    
+    return bestMatch;
+}
+
+std::string StringMatcher::findBestMatchFast(const std::string& normalizedRom, const std::vector<std::string>& candidates, const std::vector<std::string>& normalizedCandidates) {
+    if (candidates.empty() || candidates.size() != normalizedCandidates.size()) return "";
+    
+    std::string bestMatch;
+    int bestDistance = INT_MAX;
+    
+    for (size_t i = 0; i < candidates.size(); i++) {
+        int distance = damerauLevenshteinDistance(normalizedRom, normalizedCandidates[i]);
+        
+        if (distance < bestDistance) {
+            bestDistance = distance;
+            bestMatch = candidates[i];
         }
         
         if (distance == 0) break;
@@ -178,15 +195,18 @@ std::string StringMatcher::urlEncode(const std::string& input) {
 }
 
 std::string StringMatcher::urlDecode(const std::string& input) {
-    std::string output = "";
+    std::string output;
+    output.reserve(input.length());
     for (size_t i = 0; i < input.length(); i++) {
         if (input[i] == '%' && i + 2 < input.length()) {
-            unsigned int value;
-            if (sscanf(input.substr(i + 1, 2).c_str(), "%x", &value) == 1) {
-                output += static_cast<char>(value);
+            char hex[3] = { input[i+1], input[i+2], 0 };
+            char* end;
+            int val = strtol(hex, &end, 16);
+            if (*end == 0) {
+                output += (char)val;
                 i += 2;
             } else {
-                output += input[i];
+                output += '%';
             }
         } else if (input[i] == '+') {
             output += ' ';

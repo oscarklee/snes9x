@@ -332,14 +332,6 @@ static void S9xOpenJoystick(int index)
                 if (!taken) break;
             }
             instance_to_pad[instance] = pad;
-
-            printf("Joystick connected: %s\n", SDL_JoystickName(joy));
-            printf("  Instance ID: %d, Pad Slot: %d\n", (int)instance, pad);
-            printf("  %d-axis %d-buttons %d-balls %d-hats\n",
-                   SDL_JoystickNumAxes(joy),
-                   SDL_JoystickNumButtons(joy),
-                   SDL_JoystickNumBalls(joy),
-                   SDL_JoystickNumHats(joy));
         }
         else
         {
@@ -352,7 +344,6 @@ static void S9xCloseJoystick(SDL_JoystickID instance)
 {
     if (open_joysticks.count(instance))
     {
-        printf("Joystick disconnected (Instance %d, Pad %d)\n", (int)instance, instance_to_pad[instance]);
         SDL_JoystickClose(open_joysticks[instance]);
         open_joysticks.erase(instance);
         instance_to_pad.erase(instance);
@@ -361,17 +352,12 @@ static void S9xCloseJoystick(SDL_JoystickID instance)
 
 void S9xInitInputDevices (void)
 {
-	// domaemon: 1) initializing the joystic subsystem
 	SDL_InitSubSystem (SDL_INIT_JOYSTICK);
     SDL_JoystickEventState(SDL_ENABLE);
 
 	int num_joysticks = SDL_NumJoysticks();
 
-	if (num_joysticks == 0)
-	{
-		printf("joystick: No joystick found. Waiting for connection...\n");
-	}
-	else
+	if (num_joysticks > 0)
 	{
 		for (int i = 0; i < num_joysticks; i++)
 		{
