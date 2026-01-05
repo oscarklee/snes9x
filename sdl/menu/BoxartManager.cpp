@@ -209,7 +209,8 @@ void BoxartManager::processTask(const BoxartTask& task) {
     if (exists && !task.isDownload) {
         SDL_Surface* surface = loadImageSurface(localPath);
         if (surface) {
-            cropAndScale(surface, 256, 178);
+            // Scale to a maximum height while preserving aspect ratio
+            scaleToFit(surface, 512, 256);
             result.surface = surface;
             result.blurred = applyBoxBlur(surface, blurRadius);
             result.success = true;
@@ -396,26 +397,23 @@ SDL_Surface* BoxartManager::loadImageSurface(const std::string& path) {
     return converted;
 }
 
-void BoxartManager::cropAndScale(SDL_Surface*& surface, int targetW, int targetH) {
+void BoxartManager::scaleToFit(SDL_Surface*& surface, int maxW, int maxH) {
     if (!surface) return;
     
-    float targetRatio = (float)targetW / (float)targetH;
-    float currentRatio = (float)surface->w / (float)surface->h;
+    float ratioW = (float)maxW / surface->w;
+    float ratioH = (float)maxH / surface->h;
+    float scale = std::min(ratioW, ratioH);
     
-    int srcX = 0, srcY = 0, srcW = surface->w, srcH = surface->h;
+    // Don't upscale
+    if (scale >= 1.0f) return;
     
-    if (currentRatio > targetRatio) {
-        srcW = (int)(surface->h * targetRatio);
-        srcX = (surface->w - srcW) / 2;
-    } else {
-        srcH = (int)(surface->w / targetRatio);
-        srcY = (surface->h - srcH) / 2;
-    }
+    int targetW = (int)(surface->w * scale);
+    int targetH = (int)(surface->h * scale);
     
     SDL_Surface* optimized = SDL_CreateRGBSurfaceWithFormat(0, targetW, targetH, 16, SDL_PIXELFORMAT_RGB565);
     if (!optimized) return;
     
-    SDL_Rect srcRect = {srcX, srcY, srcW, srcH};
+    SDL_Rect srcRect = {0, 0, surface->w, surface->h};
     SDL_Rect dstRect = {0, 0, targetW, targetH};
     
     SDL_BlitScaled(surface, &srcRect, optimized, &dstRect);

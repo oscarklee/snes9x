@@ -69,6 +69,7 @@ typedef struct
     bool8           fullscreen;
 	int 			screen_width;
 	int 			screen_height;
+    float           aspect_ratio;
 } GUIData;
 
 static GUIData GUI;
@@ -113,6 +114,7 @@ void S9xExtraDisplayUsage (void)
 	S9xMessage(S9X_INFO, S9X_USAGE, "-v7                             Video mode: EPX");
 	S9xMessage(S9X_INFO, S9X_USAGE, "-v8                             Video mode: hq2x");
 	S9xMessage(S9X_INFO, S9X_USAGE, "-res WIDTHxHEIGHT               Screen resolution");
+	S9xMessage(S9X_INFO, S9X_USAGE, "-aspect-ratio <ratio>           Aspect ratio (e.g. 4:3 or 1.33)");
 	S9xMessage(S9X_INFO, S9X_USAGE, "");
 }
 
@@ -160,6 +162,23 @@ void S9xParseDisplayArg (char **argv, int &i, int argc)
 			}
 		}
 	}
+	else if (!strcasecmp(argv[i], "-aspect-ratio"))
+	{
+		if ((i + 1) < argc)
+		{
+			char *p = strchr(argv[++i], ':');
+			if (p)
+			{
+				float w = atof(argv[i]);
+				float h = atof(p + 1);
+				if (h != 0) GUI.aspect_ratio = w / h;
+			}
+			else
+			{
+				GUI.aspect_ratio = atof(argv[i]);
+			}
+		}
+	}
 	else
 		S9xUsage();
 }
@@ -197,16 +216,40 @@ void S9xInitDisplay (int argc, char **argv)
 	// Check screen resolution, given as parameter earlier
 	if ((GUI.screen_width == 0) || (GUI.screen_height == 0))
 	{
-		GUI.screen_width = SNES_WIDTH * 2;
-		GUI.screen_height = SNES_HEIGHT_EXTENDED * 2; 
+		SDL_DisplayMode dm;
+		if (SDL_GetDesktopDisplayMode(0, &dm) == 0)
+		{
+			GUI.screen_width = dm.w;
+			GUI.screen_height = dm.h;
+		}
+		else
+		{
+			GUI.screen_width = SNES_WIDTH * 2;
+			GUI.screen_height = SNES_HEIGHT_EXTENDED * 2; 
+		}
 	}
 
-	if (GUI.fullscreen)
+	if (GUI.fullscreen || GUI.aspect_ratio > 0)
 	{
-		GUI.sdl_screen_rect.w = GUI.screen_height * (SNES_WIDTH * 2) / (SNES_HEIGHT_EXTENDED * 2); 
-		GUI.sdl_screen_rect.h = GUI.screen_height; 
-		GUI.sdl_screen_rect.x = (GUI.screen_width - GUI.sdl_screen_rect.w) / 2; 
-		GUI.sdl_screen_rect.y = 0; 
+		float target_aspect = GUI.aspect_ratio > 0 ? GUI.aspect_ratio : (float)(SNES_WIDTH * 2) / (SNES_HEIGHT_EXTENDED * 2);
+		float window_aspect = (float)GUI.screen_width / GUI.screen_height;
+
+		if (window_aspect > target_aspect)
+		{
+			// Window is wider than target aspect ratio (pillarbox)
+			GUI.sdl_screen_rect.h = GUI.screen_height;
+			GUI.sdl_screen_rect.w = (int)(GUI.screen_height * target_aspect);
+			GUI.sdl_screen_rect.x = (GUI.screen_width - GUI.sdl_screen_rect.w) / 2;
+			GUI.sdl_screen_rect.y = 0;
+		}
+		else
+		{
+			// Window is taller than target aspect ratio (letterbox)
+			GUI.sdl_screen_rect.w = GUI.screen_width;
+			GUI.sdl_screen_rect.h = (int)(GUI.screen_width / target_aspect);
+			GUI.sdl_screen_rect.x = 0;
+			GUI.sdl_screen_rect.y = (GUI.screen_height - GUI.sdl_screen_rect.h) / 2;
+		}
 		GUI.p_screen_rect = &GUI.sdl_screen_rect; 
 	}
 	else
@@ -219,7 +262,7 @@ void S9xInitDisplay (int argc, char **argv)
 						SDL_WINDOWPOS_CENTERED,
 						SDL_WINDOWPOS_CENTERED,
 						GUI.screen_width, GUI.screen_height,
-						0);
+						(GUI.fullscreen || GUI.aspect_ratio > 0) ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 
 	if (GUI.sdlWindow == NULL)
 	{
@@ -376,10 +419,39 @@ SDL_Renderer* S9xGetRenderer(void)
     return GUI.sdlRenderer;
 }
 
+void S9xGetViewport(int &x, int &y, int &w, int &h)
+{
+    if (GUI.p_screen_rect)
+    {
+        x = GUI.p_screen_rect->x;
+        y = GUI.p_screen_rect->y;
+        w = GUI.p_screen_rect->w;
+        h = GUI.p_screen_rect->h;
+    }
+    else
+    {
+        x = 0;
+        y = 0;
+        w = GUI.screen_width;
+        h = GUI.screen_height;
+    }
+}
+
 void S9xMenuDraw (void)
 {
     if (g_carousel) {
+        // Clear entire screen to black (for letterbox/pillarbox)
+        SDL_SetRenderDrawColor(GUI.sdlRenderer, 0, 0, 0, 255);
+        SDL_RenderClear(GUI.sdlRenderer);
+
+        int x, y, w, h;
+        S9xGetViewport(x, y, w, h);
+        SDL_Rect viewport = {x, y, w, h};
+        SDL_RenderSetViewport(GUI.sdlRenderer, &viewport);
+        
         g_carousel->render();
+        
+        SDL_RenderSetViewport(GUI.sdlRenderer, NULL);
     } else {
         uint16 blue = BUILD_PIXEL(0, 0, 16);
         for (uint32 y = 0; y < SNES_HEIGHT_EXTENDED; y++)
@@ -398,7 +470,7 @@ void S9xMenuDraw (void)
         if (g_rom_list.empty())
         {
             Settings.DisplayColor = red;
-            S9xVariableDisplayString("No ROMs found in ~/roms", 18, 10, false, S9X_NO_INFO);
+            S9xVariableDisplayString("No ROMs found in ~/.snes9x/rom", 18, 10, false, S9X_NO_INFO);
         }
 
         S9xPutImage(SNES_WIDTH, SNES_HEIGHT_EXTENDED);

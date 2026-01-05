@@ -752,14 +752,14 @@ void S9xMenuInit (void)
         Memory.Deinit();
     }
 
-    std::string rom_dir = std::string(getenv("HOME")) + SLASH_STR + "roms";
+    std::string rom_dir = S9xGetDirectory(ROM_DIR);
     
     if (!g_carousel) {
         g_carousel = new MenuCarousel();
         SDL_Renderer* renderer = S9xGetRenderer();
         if (renderer) {
-            int w, h;
-            SDL_GetRendererOutputSize(renderer, &w, &h);
+            int x, y, w, h;
+            S9xGetViewport(x, y, w, h);
             g_carousel->init(renderer, w, h);
         }
     }

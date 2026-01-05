@@ -345,6 +345,13 @@ void MenuCarousel::renderReflection(int x, int y, int w, int h, const std::strin
     SDL_Texture* tex = boxartManager.getTexture(romName, 1); // Use blurred for reflection
     if (!tex || tex == boxartManager.getTexture("NON_EXISTENT")) return;
 
+    int texW, texH;
+    SDL_QueryTexture(tex, nullptr, nullptr, &texW, &texH);
+    float texAspect = (float)texW / texH;
+    
+    // Ensure reflection has same aspect as the card being reflected
+    // w and h are already aspect-corrected from the caller (renderCard)
+
     // 1. Render flipped boxart with configurable base opacity (opacity parameter here is already dimmed)
     SDL_SetTextureAlphaMod(tex, (Uint8)(opacity * reflectionOpacity * 255.0f)); 
     SDL_Rect dst = {x - w/2, y, w, h};
@@ -442,17 +449,30 @@ void MenuCarousel::renderCard(int offset, const RomEntry& rom, float animPos) {
     float brightness = calculateBrightness(absOffset);
     int blurLevel = calculateBlurLevel(absOffset);
     
+    SDL_Texture* tex = boxartManager.getTexture(rom.filename, blurLevel);
     int w = (int)(CARD_WIDTH * scale);
     int h = (int)(CARD_HEIGHT * scale);
-    
-    // 15px separation between image and reflection (as requested)
-    renderReflection(x, y + h/2 + 15, w, h, rom.filename, brightness * 0.4f);
-    
-    SDL_Texture* tex = boxartManager.getTexture(rom.filename, blurLevel);
+
     if (tex) {
+        int texW, texH;
+        SDL_QueryTexture(tex, nullptr, nullptr, &texW, &texH);
+        
+        float texAspect = (float)texW / texH;
+        float cardAspect = (float)CARD_WIDTH / CARD_HEIGHT;
+        
+        if (texAspect > cardAspect) {
+            h = (int)(w / texAspect);
+        } else {
+            w = (int)(h * texAspect);
+        }
+        
         Uint8 colorMod = (Uint8)(brightness * 255);
         SDL_SetTextureColorMod(tex, colorMod, colorMod, colorMod);
         SDL_Rect dst = {x - w/2, y - h/2, w, h};
+        
+        // 15px separation between image and reflection
+        renderReflection(x, y + h/2 + 15, w, h, rom.filename, brightness * 0.4f);
+        
         SDL_RenderCopy(renderer, tex, nullptr, &dst);
     }
     

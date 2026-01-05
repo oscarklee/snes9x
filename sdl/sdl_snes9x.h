@@ -36,5 +36,6 @@ bool8 S9xLoadROM(const char *filename);
 void S9xDeinitInputDevices(void);
 
 SDL_Renderer* S9xGetRenderer(void);
+void S9xGetViewport(int &x, int &y, int &w, int &h);
 
 #endif

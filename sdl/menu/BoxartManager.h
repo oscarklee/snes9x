@@ -93,7 +93,7 @@ private:
     std::string getLocalPath(const std::string& romName);
     SDL_Surface* loadImageSurface(const std::string& path);
     SDL_Texture* createPlaceholderTexture(const std::string& name);
-    void cropAndScale(SDL_Surface*& surface, int targetW, int targetH);
+    void scaleToFit(SDL_Surface*& surface, int maxW, int maxH);
     SDL_Surface* applyBoxBlur(SDL_Surface* src, int radius);
 };
 

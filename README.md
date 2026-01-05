@@ -43,11 +43,16 @@ make -j1 CFLAGS="-O3 -mcpu=cortex-a53 -funsafe-math-optimizations" \
 ### Launching Games
 You can launch a ROM directly from the command line:
 ```bash
-./snes9x ~/roms/SuperMarioWorld.zip
+./snes9x ~/.snes9x/rom/SuperMarioWorld.zip
 ```
 
+### Options
+- `-aspect-ratio <ratio>`: Forces a specific aspect ratio (e.g. `4:3`, `16:9`, or `1.33`). This affects both the menu and the games.
+- `-res <WIDTHxHEIGHT>`: Sets the window/screen resolution.
+- `-fullscreen`: Enables fullscreen mode.
+
 ### ROM Selection Menu
-If you execute `./snes9x` without parameters, the emulator will launch a blue graphical menu listing all ROMs available in `~/roms`.
+If you execute `./snes9x` without parameters, the emulator will launch a graphical menu listing all ROMs available in `~/.snes9x/rom`.
 - **Supported extensions**: `.sfc`, `.zip`.
 - **Navigation**: Use the **D-pad** (up/down) to move and **Action Buttons** (A/B/X/Y) to select.
 - **Home Button**: 
