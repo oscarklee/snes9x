@@ -60,11 +60,6 @@ private:
     SDL_Texture* backgroundGradient;
     SDL_Texture* reflectionOverlay;
 
-    // Title animation
-    std::string currentTitle;
-    float titleAlpha; // 0.0 to 1.0
-
-    // Configurable visual parameters
     float reflectionOpacity;  // Base transparency for reflections (0.0 to 1.0)
     int blurRadius;           // Radius for box blur on side cards and reflections
     float minSideBrightness;  // Minimum brightness for far cards
@@ -80,8 +75,6 @@ private:
     void renderBackground();
     void renderCard(int offset, const RomEntry& rom, float animPos);
     void renderReflection(int x, int y, int w, int h, const std::string& romName, float opacity);
-    void renderTitle(const std::string& title, int x, int y);
-    void renderText(const std::string& text, int x, int y, SDL_Color color, float scale = 1.0f);
     void renderNoRomsMessage();
 };
 

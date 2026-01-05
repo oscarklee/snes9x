@@ -461,18 +461,6 @@ void S9xMenuDraw (void)
                 *ptr++ = blue;
         }
 
-        uint16 white = BUILD_PIXEL(31, 31, 31);
-        uint16 red = BUILD_PIXEL(31, 0, 0);
-
-        Settings.DisplayColor = white;
-        S9xVariableDisplayString("Snes9x - Loading Menu...", 22, 10, false, S9X_NO_INFO);
-
-        if (g_rom_list.empty())
-        {
-            Settings.DisplayColor = red;
-            S9xVariableDisplayString("No ROMs found in ~/.snes9x/rom", 18, 10, false, S9X_NO_INFO);
-        }
-
         S9xPutImage(SNES_WIDTH, SNES_HEIGHT_EXTENDED);
     }
 }

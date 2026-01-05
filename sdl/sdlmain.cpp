@@ -843,7 +843,7 @@ int main (int argc, char **argv)
 	Settings.SoundPlaybackRate = 32000;
 	Settings.SoundInputRate = 32000;
 	Settings.Transparency = TRUE;
-	Settings.AutoDisplayMessages = TRUE;
+	Settings.AutoDisplayMessages = FALSE;
 	Settings.InitialInfoStringTimeout = 120;
 	Settings.HDMATimingHack = 100;
 	Settings.BlockInvalidVRAMAccessMaster = TRUE;
