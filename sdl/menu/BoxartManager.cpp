@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <fstream>
 #include <regex>
+#include <dirent.h>
 
 static const char* LIBRETRO_BASE_URL = "https://thumbnails.libretro.com/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/Named_Boxarts/";
 
@@ -28,6 +29,8 @@ BoxartManager::BoxartManager()
     const char* home = getenv("HOME");
     if (home) {
         boxartDir = std::string(home) + "/.snes9x/boxart";
+    } else {
+        boxartDir = ".snes9x/boxart";
     }
 }
 
@@ -79,10 +82,10 @@ void BoxartManager::shutdown() {
 }
 
 void BoxartManager::ensureDirectoryExists() {
-    const char* home = getenv("HOME");
-    if (!home) return;
+    const char* home_env = getenv("HOME");
+    std::string home = home_env ? std::string(home_env) : "/root";
     
-    std::string snes9xDir = std::string(home) + "/.snes9x";
+    std::string snes9xDir = home + "/.snes9x";
     mkdir(snes9xDir.c_str(), 0755);
     mkdir(boxartDir.c_str(), 0755);
 }
@@ -153,8 +156,7 @@ void BoxartManager::unloadBoxart(const std::string& romName) {
 }
 
 void BoxartManager::workerFunc() {
-    std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-
+    // Initial delay removed for faster boot
     while (true) {
         BoxartTask task;
         {
@@ -171,53 +173,38 @@ void BoxartManager::workerFunc() {
 }
 
 void BoxartManager::processTask(const BoxartTask& task) {
-    std::string localPath = getLocalPath(task.romName);
-    struct stat st;
-    bool exists = (stat(localPath.c_str(), &st) == 0);
-    
-    if (exists && st.st_size < 100) {
-        remove(localPath.c_str());
-        exists = false;
+    std::string romBase = task.romName;
+    size_t lastDot = romBase.find_last_of('.');
+    if (lastDot != std::string::npos) {
+        romBase = romBase.substr(0, lastDot);
     }
 
-    if (!exists) {
-        std::string matched;
-        {
-            std::lock_guard<std::mutex> lock(indexMutex);
-            if (!libretroIndexLoaded) {
-                fetchLibretroIndex();
-            }
-            if (libretroIndexLoaded) {
-                std::string normalizedRom = StringMatcher::normalize(task.romName);
-                matched = StringMatcher::findBestMatchFast(normalizedRom, libretroNames, normalizedLibretroNames);
-            }
-        }
-
-        if (!matched.empty()) {
-            if (downloadBoxart(task.romName, matched)) {
-                exists = true;
-            }
+    std::vector<std::string> paths;
+    paths.push_back(boxartDir + "/" + task.romName + ".png"); 
+    paths.push_back(boxartDir + "/" + romBase + ".png");      
+    
+    std::string finalPath = "";
+    for (const auto& p : paths) {
+        struct stat st;
+        if (stat(p.c_str(), &st) == 0) {
+            finalPath = p;
+            break;
         }
     }
-    
+
     BoxartResult result;
     result.romName = task.romName;
     result.success = false;
     result.isDisplay = !task.isDownload;
     
-    if (exists && !task.isDownload) {
-          SDL_Surface* surface = loadImageSurface(localPath);
+    if (!finalPath.empty() && !task.isDownload) {
+          SDL_Surface* surface = loadImageSurface(finalPath);
           if (surface) {
-              // Allow up to 800x600 for high quality on large screens
               scaleToFit(surface, 800, 600);
               result.surface = surface;
               result.blurred = applyBoxBlur(surface, blurRadius);
-            result.success = true;
-        } else {
-            remove(localPath.c_str());
+              result.success = true;
         }
-    } else if (exists && task.isDownload) {
-        result.success = true;
     }
     
     {
@@ -389,9 +376,12 @@ bool BoxartManager::downloadBoxart(const std::string& romName, const std::string
 
 SDL_Surface* BoxartManager::loadImageSurface(const std::string& path) {
     SDL_Surface* surface = IMG_Load(path.c_str());
-    if (!surface) return nullptr;
+    if (!surface) {
+        return nullptr;
+    }
     
-    SDL_Surface* converted = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_RGB565, 0);
+    // Usar el formato que funcionó en el test
+    SDL_Surface* converted = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_RGB24, 0);
     SDL_FreeSurface(surface);
     return converted;
 }
@@ -409,7 +399,7 @@ void BoxartManager::scaleToFit(SDL_Surface*& surface, int maxW, int maxH) {
     int targetW = (int)(surface->w * scale);
     int targetH = (int)(surface->h * scale);
     
-    SDL_Surface* optimized = SDL_CreateRGBSurfaceWithFormat(0, targetW, targetH, 16, SDL_PIXELFORMAT_RGB565);
+    SDL_Surface* optimized = SDL_CreateRGBSurfaceWithFormat(0, targetW, targetH, 24, SDL_PIXELFORMAT_RGB24);
     if (!optimized) return;
     
     SDL_Rect srcRect = {0, 0, surface->w, surface->h};
@@ -423,15 +413,15 @@ void BoxartManager::scaleToFit(SDL_Surface*& surface, int maxW, int maxH) {
 SDL_Surface* BoxartManager::applyBoxBlur(SDL_Surface* src, int radius) {
     if (!src || radius <= 0) return nullptr;
     
-    SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 16, SDL_PIXELFORMAT_RGB565);
+    SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 24, SDL_PIXELFORMAT_RGB24);
     if (!dst) return nullptr;
 
     int w = src->w;
     int h = src->h;
-    int srcPitch = src->pitch / 2;
-    int dstPitch = dst->pitch / 2;
-    Uint16* srcPixels = (Uint16*)src->pixels;
-    Uint16* dstPixels = (Uint16*)dst->pixels;
+    int srcPitch = src->pitch;
+    int dstPitch = dst->pitch;
+    Uint8* srcPixels = (Uint8*)src->pixels;
+    Uint8* dstPixels = (Uint8*)dst->pixels;
 
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
@@ -443,15 +433,18 @@ SDL_Surface* BoxartManager::applyBoxBlur(SDL_Surface* src, int radius) {
                     int px = x + kx;
                     if (px < 0 || px >= w) continue;
                     
-                    Uint16 pixel = srcPixels[py * srcPitch + px];
-                    r += (pixel >> 11) & 0x1F;
-                    g += (pixel >> 5) & 0x3F;
-                    b += pixel & 0x1F;
+                    Uint8* p = &srcPixels[py * srcPitch + px * 3];
+                    r += p[0];
+                    g += p[1];
+                    b += p[2];
                     count++;
                 }
             }
             if (count > 0) {
-                dstPixels[y * dstPitch + x] = (Uint16)(((r / count) << 11) | ((g / count) << 5) | (b / count));
+                Uint8* p = &dstPixels[y * dstPitch + x * 3];
+                p[0] = r / count;
+                p[1] = g / count;
+                p[2] = b / count;
             }
         }
     }
@@ -460,9 +453,9 @@ SDL_Surface* BoxartManager::applyBoxBlur(SDL_Surface* src, int radius) {
 
 SDL_Texture* BoxartManager::createPlaceholderTexture(const std::string& name) {
     if (!renderer) return nullptr;
-    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, 16, 16, 16, SDL_PIXELFORMAT_RGB565);
+    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, 16, 16, 24, SDL_PIXELFORMAT_RGB24);
     if (!s) return nullptr;
-    SDL_FillRect(s, nullptr, SDL_MapRGB(s->format, 40, 40, 50));
+    SDL_FillRect(s, nullptr, SDL_MapRGB(s->format, 30, 30, 35)); // Gris oscuro discreto
     SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, s);
     if (tex) SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
     SDL_FreeSurface(s);

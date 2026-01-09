@@ -336,7 +336,10 @@ std::string S9xGetDirectory (enum s9x_getdirtype dirtype)
 				return s9x_base_dir;
 
 			case HOME_DIR:
-				return std::string(getenv("HOME"));
+			{
+				const char* h = getenv("HOME");
+				return h ? std::string(h) : "/root";
+			}
 
 			case ROMFILENAME_DIR:
 			{
@@ -754,20 +757,12 @@ void S9xMenuInit (void)
 
     std::string rom_dir = S9xGetDirectory(ROM_DIR);
     
-    if (!g_carousel) {
-        g_carousel = new MenuCarousel();
-        SDL_Renderer* renderer = S9xGetRenderer();
-        if (renderer) {
-            int x, y, w, h;
-            S9xGetViewport(x, y, w, h);
-            g_carousel->init(renderer, w, h);
-        }
+    if (g_carousel) {
+        g_carousel->scanRomDirectory(rom_dir);
+        g_last_menu_time = SDL_GetTicks();
+        g_state = STATE_MENU;
+        S9xSetTitle("Snes9x - ROM Selection");
     }
-    
-    g_carousel->scanRomDirectory(rom_dir);
-    g_last_menu_time = SDL_GetTicks();
-    g_state = STATE_MENU;
-    S9xSetTitle("Snes9x - ROM Selection");
 }
 
 void S9xMenuUpdate(float deltaTime)
@@ -829,7 +824,9 @@ int main (int argc, char **argv)
 
 	printf("\n\nSnes9x " VERSION " for unix/SDL\n");
 
-	s9x_base_dir = std::string(getenv("HOME")) + SLASH_STR + ".snes9x";
+	const char* home_env = getenv("HOME");
+	std::string home = home_env ? std::string(home_env) : "/root";
+	s9x_base_dir = home + SLASH_STR + ".snes9x";
 
 	memset(&Settings, 0, sizeof(Settings));
 	Settings.MouseMaster = FALSE;
@@ -928,9 +925,15 @@ int main (int argc, char **argv)
 	S9xInitDisplay(argc, argv);
 	S9xSetupDefaultKeymap();
 
-    // Move MenuInit after InitDisplay to ensure renderer is available
     if (!loaded && !Settings.Multi)
     {
+        g_carousel = new MenuCarousel();
+        SDL_Renderer* renderer = S9xGetRenderer();
+        if (renderer) {
+            int w, h;
+            SDL_GetRendererOutputSize(renderer, &w, &h);
+            g_carousel->init(renderer, w, h);
+        }
         S9xMenuInit();
     }
 

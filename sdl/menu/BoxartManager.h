@@ -56,7 +56,7 @@ public:
     
     void setBlurRadius(int radius) { blurRadius = radius; }
     
-    void requestBoxart(const std::string& romName, const std::string& displayName, bool priority = false, bool isSyncOnly = false);
+    void requestBoxart(const std::string& romName, const std::string& displayName, bool priority = false, bool isDownload = false);
     void unloadBoxart(const std::string& romName);
     void pollResults();
     

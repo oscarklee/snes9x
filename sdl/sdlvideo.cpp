@@ -440,18 +440,10 @@ void S9xGetViewport(int &x, int &y, int &w, int &h)
 void S9xMenuDraw (void)
 {
     if (g_carousel) {
-        // Clear entire screen to black (for letterbox/pillarbox)
         SDL_SetRenderDrawColor(GUI.sdlRenderer, 0, 0, 0, 255);
         SDL_RenderClear(GUI.sdlRenderer);
-
-        int x, y, w, h;
-        S9xGetViewport(x, y, w, h);
-        SDL_Rect viewport = {x, y, w, h};
-        SDL_RenderSetViewport(GUI.sdlRenderer, &viewport);
-        
-        g_carousel->render();
-        
         SDL_RenderSetViewport(GUI.sdlRenderer, NULL);
+        g_carousel->render();
     } else {
         uint16 blue = BUILD_PIXEL(0, 0, 16);
         for (uint32 y = 0; y < SNES_HEIGHT_EXTENDED; y++)

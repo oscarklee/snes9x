@@ -45,10 +45,11 @@ void MenuCarousel::shutdown() {
 }
 
 void MenuCarousel::saveState() {
-    const char* home = getenv("HOME");
-    if (!home || romList.empty()) return;
+    const char* home_env = getenv("HOME");
+    std::string home = home_env ? std::string(home_env) : "/root";
+    if (romList.empty()) return;
     
-    std::string path = std::string(home) + "/.snes9x/last_rom";
+    std::string path = home + "/.snes9x/last_rom";
     FILE* f = fopen(path.c_str(), "w");
     if (f) {
         int idx = getSelectedIndex();
@@ -60,10 +61,11 @@ void MenuCarousel::saveState() {
 }
 
 void MenuCarousel::loadState() {
-    const char* home = getenv("HOME");
-    if (!home || romList.empty()) return;
+    const char* home_env = getenv("HOME");
+    std::string home = home_env ? std::string(home_env) : "/root";
+    if (romList.empty()) return;
     
-    std::string path = std::string(home) + "/.snes9x/last_rom";
+    std::string path = home + "/.snes9x/last_rom";
     FILE* f = fopen(path.c_str(), "r");
     if (f) {
         char buf[512];
@@ -91,7 +93,7 @@ void MenuCarousel::loadState() {
 void MenuCarousel::createStaticTextures() {
     if (!renderer) return;
 
-    SDL_Surface* bgSurf = SDL_CreateRGBSurfaceWithFormat(0, 1, 256, 16, SDL_PIXELFORMAT_RGB565);
+    SDL_Surface* bgSurf = SDL_CreateRGBSurfaceWithFormat(0, 1, 256, 24, SDL_PIXELFORMAT_RGB24);
     if (bgSurf) {
         SDL_LockSurface(bgSurf);
         for (int y = 0; y < 256; y++) {
@@ -108,8 +110,8 @@ void MenuCarousel::createStaticTextures() {
                 g = (Uint8)(0x1a - localT * (0x1a - 0x0f));
                 b = (Uint8)(0x35 - localT * (0x35 - 0x11));
             }
-            Uint16* row = (Uint16*)((Uint8*)bgSurf->pixels + y * bgSurf->pitch);
-            *row = (Uint16)SDL_MapRGB(bgSurf->format, r, g, b);
+            Uint8* row = (Uint8*)bgSurf->pixels + y * bgSurf->pitch;
+            row[0] = r; row[1] = g; row[2] = b;
         }
         SDL_UnlockSurface(bgSurf);
         backgroundGradient = SDL_CreateTextureFromSurface(renderer, bgSurf);
