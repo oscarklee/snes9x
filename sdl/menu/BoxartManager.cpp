@@ -10,7 +10,7 @@
 #include <regex>
 #include <dirent.h>
 
-static const char* LIBRETRO_BASE_URL = "https://thumbnails.libretro.com/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/Named_Boxarts/";
+static const char* LIBRETRO_BASE_URL = "http://thumbnails.libretro.com/Nintendo%20-%20Super%20Nintendo%20Entertainment%20System/Named_Boxarts/";
 
 static size_t writeCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     std::ofstream* file = static_cast<std::ofstream*>(userp);
@@ -192,6 +192,29 @@ void BoxartManager::processTask(const BoxartTask& task) {
         }
     }
 
+    // If not found locally, try to download from libretro
+    if (finalPath.empty()) {
+        fprintf(stderr, "[Boxart] Not found locally: %s\n", romBase.c_str());
+        fetchLibretroIndex();
+        
+        if (!libretroNames.empty()) {
+            std::string normalizedRom = StringMatcher::normalize(romBase);
+            std::string match = StringMatcher::findBestMatchFast(normalizedRom, libretroNames, normalizedLibretroNames);
+            
+            if (!match.empty()) {
+                fprintf(stderr, "[Boxart] Matched '%s' -> '%s'\n", romBase.c_str(), match.c_str());
+                if (downloadBoxart(task.romName, match)) {
+                    finalPath = getLocalPath(task.romName);
+                    fprintf(stderr, "[Boxart] Downloaded OK: %s\n", finalPath.c_str());
+                }
+            } else {
+                fprintf(stderr, "[Boxart] No match found for: %s\n", romBase.c_str());
+            }
+        } else {
+            fprintf(stderr, "[Boxart] Libretro index empty (fetch failed?)\n");
+        }
+    }
+
     BoxartResult result;
     result.romName = task.romName;
     result.success = false;
@@ -305,8 +328,13 @@ void BoxartManager::pollResults() {
 void BoxartManager::fetchLibretroIndex() {
     if (libretroIndexLoaded) return;
     
+    fprintf(stderr, "[Boxart] Fetching libretro index from: %s\n", LIBRETRO_BASE_URL);
+    
     CURL* curl = curl_easy_init();
-    if (!curl) return;
+    if (!curl) {
+        fprintf(stderr, "[Boxart] ERROR: curl_easy_init failed\n");
+        return;
+    }
     
     std::string html;
     curl_easy_setopt(curl, CURLOPT_URL, LIBRETRO_BASE_URL);
@@ -314,6 +342,7 @@ void BoxartManager::fetchLibretroIndex() {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &html);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     
     CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
@@ -335,6 +364,9 @@ void BoxartManager::fetchLibretroIndex() {
             pos += needle.length();
         }
         libretroIndexLoaded = true;
+        fprintf(stderr, "[Boxart] Libretro index loaded: %zu entries\n", libretroNames.size());
+    } else {
+        fprintf(stderr, "[Boxart] ERROR: Failed to fetch index: %s\n", curl_easy_strerror(res));
     }
 }
 
@@ -343,11 +375,17 @@ bool BoxartManager::downloadBoxart(const std::string& romName, const std::string
     std::string encodedName = StringMatcher::urlEncode(matchedName);
     std::string url = std::string(LIBRETRO_BASE_URL) + encodedName;
     
+    fprintf(stderr, "[Boxart] Downloading: %s\n", url.c_str());
+    
     CURL* curl = curl_easy_init();
-    if (!curl) return false;
+    if (!curl) {
+        fprintf(stderr, "[Boxart] ERROR: curl_easy_init failed\n");
+        return false;
+    }
     
     std::ofstream file(localPath, std::ios::binary);
     if (!file.is_open()) {
+        fprintf(stderr, "[Boxart] ERROR: Cannot write to %s\n", localPath.c_str());
         curl_easy_cleanup(curl);
         return false;
     }
@@ -370,6 +408,8 @@ bool BoxartManager::downloadBoxart(const std::string& romName, const std::string
         return true;
     }
     
+    fprintf(stderr, "[Boxart] ERROR: Download failed - curl=%s, http=%ld\n", 
+            curl_easy_strerror(res), httpCode);
     remove(localPath.c_str());
     return false;
 }
