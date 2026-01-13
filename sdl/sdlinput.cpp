@@ -40,6 +40,7 @@
 #include "memmap.h"
 #include "cheats.h"
 #include "display.h"
+#include "snapshot.h"
 
 #include <map>
 
@@ -432,6 +433,12 @@ void S9xProcessEvents (bool8 block)
                 if (event.jbutton.button == 4) button4_held = (event.type == SDL_JOYBUTTONDOWN);
                 if (event.jbutton.button == 5) button5_held = (event.type == SDL_JOYBUTTONDOWN);
 
+                // Combo ZL + ZR: Delete current save and reload
+                if (button4_held && button5_held)
+                {
+                    S9xDeleteCurrentSaveAndReload();
+                }
+
                 uint32 baseFrameTime = Settings.PAL ? Settings.FrameTimePAL : Settings.FrameTimeNTSC;
                 if (button4_held) Settings.FrameTime = baseFrameTime * 100 / SPEED_SLOW_PERCENT;
                 else if (button5_held) Settings.FrameTime = baseFrameTime * 100 / SPEED_FAST_PERCENT;
@@ -441,11 +448,52 @@ void S9xProcessEvents (bool8 block)
 
             if (event.type == SDL_JOYBUTTONDOWN)
             {
+                if (event.jbutton.button == 11) // Save button
+                {
+                    S9xSaveWithRotation();
+                    break;
+                }
+                if (event.jbutton.button == 12) // Load button
+                {
+                    std::string filename = S9xGetFilename(".000", SNAPSHOT_DIR);
+                    if (S9xUnfreezeGame(filename.c_str()))
+                    {
+                        S9xSetInfoString("Slot 0 loaded");
+                    }
+                    else
+                    {
+                        S9xSetInfoString("Failed to load slot 0");
+                    }
+                    break;
+                }
+
+                // Volume controls: ZR + SELECT/START
+                if (button5_held)
+                {
+                    if (event.jbutton.button == 8) // SELECT
+                    {
+                        S9xSetVolume(S9xGetVolume() - 10);
+                        char buf[32];
+                        sprintf(buf, "Volume: %d%%", S9xGetVolume());
+                        S9xSetInfoString(buf);
+                        break;
+                    }
+                    if (event.jbutton.button == 9) // START
+                    {
+                        S9xSetVolume(S9xGetVolume() + 10);
+                        char buf[32];
+                        sprintf(buf, "Volume: %d%%", S9xGetVolume());
+                        S9xSetInfoString(buf);
+                        break;
+                    }
+                }
+
                 if (event.jbutton.button == 10) // HOME
                 {
                     if (g_state == STATE_MENU)
                     {
-                        printf ("Quit Event. Bye.\n");
+                        printf ("Shutting down system. Bye.\n");
+                        system("sync && poweroff &");
                         S9xExit();
                     }
                     else

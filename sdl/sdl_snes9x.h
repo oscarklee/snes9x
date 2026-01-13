@@ -34,6 +34,10 @@ void S9xMenuMoveUp(void);
 void S9xMenuMoveDown(void);
 bool8 S9xLoadROM(const char *filename);
 void S9xDeinitInputDevices(void);
+bool8 S9xSaveWithRotation(void);
+void S9xDeleteCurrentSaveAndReload(void);
+void S9xSetVolume(int volume);
+int S9xGetVolume(void);
 
 SDL_Renderer* S9xGetRenderer(void);
 void S9xGetViewport(int &x, int &y, int &w, int &h);

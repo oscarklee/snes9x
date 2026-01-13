@@ -7,6 +7,20 @@
 #include "s9x_sound_driver_sdl.hpp"
 #include "SDL_audio.h"
 
+static int g_volume = 100;
+
+void S9xSetVolume(int volume)
+{
+    if (volume < 0) volume = 0;
+    if (volume > 100) volume = 100;
+    g_volume = volume;
+}
+
+int S9xGetVolume(void)
+{
+    return g_volume;
+}
+
 bool S9xSDLSoundDriver::write_samples(int16_t *data, int samples)
 {
     std::lock_guard<std::mutex> lock(mutex);
@@ -25,12 +39,24 @@ bool S9xSDLSoundDriver::write_samples(int16_t *data, int samples)
 void S9xSDLSoundDriver::mix(unsigned char *output, int bytes)
 {
     std::lock_guard<std::mutex> lock(mutex);
-    if (buffer.avail() >= bytes >> 1)
-        buffer.read((int16_t *)output, bytes >> 1);
+    int16_t *out = (int16_t *)output;
+    int count = bytes >> 1;
+
+    if (buffer.avail() >= count)
+        buffer.read(out, count);
     else
     {
-        buffer.read((int16_t *)output, buffer.avail());
-        buffer.add_silence(buffer.buffer_size / 2);
+        int avail = buffer.avail();
+        buffer.read(out, avail);
+        memset(output + (avail << 1), 0, bytes - (avail << 1));
+    }
+
+    if (g_volume < 100)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            out[i] = (int16_t)((int32_t)out[i] * g_volume / 100);
+        }
     }
 }
 

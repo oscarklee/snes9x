@@ -489,6 +489,95 @@ void S9xAutoSaveSRAM (void)
 	Memory.SaveSRAM(S9xGetFilename(".srm", SRAM_DIR).c_str());
 }
 
+static bool8 VerifySaveState(const char *filename)
+{
+	STREAM stream = NULL;
+	if (S9xOpenSnapshotFile(filename, TRUE, &stream))
+	{
+		char buffer[16];
+		size_t len = strlen(SNAPSHOT_MAGIC) + 1 + 4 + 1;
+		if (READ_STREAM(buffer, len, stream) != (unsigned int)len)
+		{
+			S9xCloseSnapshotFile(stream);
+			return FALSE;
+		}
+		S9xCloseSnapshotFile(stream);
+		if (strncmp(buffer, SNAPSHOT_MAGIC, strlen(SNAPSHOT_MAGIC)) == 0)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+bool8 S9xSaveWithRotation(void)
+{
+	// 1. Rotate slots 0-8 to 1-9
+	for (int i = 8; i >= 0; i--)
+	{
+		char old_ext[8], new_ext[8];
+		sprintf(old_ext, ".%03d", i);
+		sprintf(new_ext, ".%03d", i + 1);
+		std::string old_file = S9xGetFilename(old_ext, SNAPSHOT_DIR);
+		std::string new_file = S9xGetFilename(new_ext, SNAPSHOT_DIR);
+
+		struct stat st;
+		if (stat(old_file.c_str(), &st) == 0)
+		{
+			rename(old_file.c_str(), new_file.c_str());
+		}
+	}
+
+	// 2. Save to slot 0
+	std::string filename = S9xGetFilename(".000", SNAPSHOT_DIR);
+	if (S9xFreezeGame(filename.c_str()))
+	{
+		// 3. Verify integrity
+		if (VerifySaveState(filename.c_str()))
+		{
+			sync(); // Ensure it's written to disk
+			S9xSetInfoString("State saved to slot 0 (rotated)");
+			return TRUE;
+		}
+		else
+		{
+			S9xSetInfoString("Save verification FAILED!");
+			return FALSE;
+		}
+	}
+	return FALSE;
+}
+
+void S9xDeleteCurrentSaveAndReload(void)
+{
+	std::string slot0 = S9xGetFilename(".000", SNAPSHOT_DIR);
+	unlink(slot0.c_str());
+
+	// Shift slots 1-9 to 0-8
+	for (int i = 1; i <= 9; i++)
+	{
+		char old_ext[8], new_ext[8];
+		sprintf(old_ext, ".%03d", i);
+		sprintf(new_ext, ".%03d", i - 1);
+		std::string old_file = S9xGetFilename(old_ext, SNAPSHOT_DIR);
+		std::string new_file = S9xGetFilename(new_ext, SNAPSHOT_DIR);
+
+		struct stat st;
+		if (stat(old_file.c_str(), &st) == 0)
+		{
+			rename(old_file.c_str(), new_file.c_str());
+		}
+	}
+
+	// Load new slot 0
+	if (S9xUnfreezeGame(slot0.c_str()))
+	{
+		S9xSetInfoString("Slot 0 deleted, next slot loaded");
+	}
+	else
+	{
+		S9xSetInfoString("Slot 0 deleted, no more states");
+	}
+}
+
 void S9xToggleSoundChannel (int channel)
 {
 	static uint8 sound_switch = 255;
